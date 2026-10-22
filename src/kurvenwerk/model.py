@@ -3,7 +3,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-VERSION = 3  # 2: Column.formula/gauss, 3: Column.style, Page.plot, Project.style
+VERSION = 4  # 2: Column.formula/gauss, 3: Column.style, Page.plot, Project.style, 4: Column.fit
 ROLES = ("X", "Y", "Δx", "Δy")
 
 
@@ -16,6 +16,7 @@ class Column:
     formula: str = ""  # berechnete Spalte, siehe formula.recompute
     gauss: bool = False  # Gauß-Fehler der Formel nach Δ<name>
     style: dict = field(default_factory=dict)  # Reihen-Stil, Schlüssel siehe plot.SERIES
+    fit: dict = field(default_factory=dict)  # Fit der Y-Spalte, Schlüssel siehe fit.FIT
 
     def __post_init__(self):
         if self.role not in ROLES:

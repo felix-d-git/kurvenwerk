@@ -87,3 +87,33 @@ def test_export_pgf(tmp_path):
     f = tmp_path / "p.pgf"
     export(page(), {}, str(f), 12.0, 8.0, 100)
     assert "\\begin{pgfpicture}" in f.read_text(encoding="utf-8")
+
+
+def fit_page(**fit) -> Page:
+    x = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    y = [2 * v + 1 for v in x]
+    y[4] = 50.0  # Ausreißer, Zeile 4 wird ausgeschlossen
+    t = Table("T", [Column("x", "", "X", x), Column("y", "", "Y", y, fit={"formula": "a*x + b", **fit})])
+    return Page("S", [t], plot={"residuals": True})
+
+
+def test_fit_curve_band_residuals_and_exclusion():
+    from kurvenwerk.plot import run_fit
+    p = fit_page(excluded=[4], band="conf")
+    r, m = run_fit(series(p.tables[0])[0])
+    np.testing.assert_allclose(r.values, [2, 1], atol=1e-9)
+    assert m.tolist() == [1, 1, 1, 1, 0, 1]
+    fig = Figure()
+    drawn = draw(fig, p, {})
+    ax, rax = fig.axes
+    assert [ln.get_label() for ln in ax.lines][-1] == "Fit y" and ax.collections  # Kurve + Band
+    assert rax.get_ylabel() == "Residuen" and rax.get_xlabel() == "x" and ax.get_xlabel() == ""
+    assert len(drawn) == 1 and len(drawn[0][2]) == 6
+    _, m = run_fit(series(fit_page(xmin=2, xmax=4).tables[0])[0])
+    assert m.tolist() == [0, 1, 1, 1, 0, 0]
+
+
+def test_fit_error_shown_not_raised():
+    fig = Figure()
+    draw(fig, fit_page(formula="a*ln(x - 10)"), {})
+    assert len(fig.axes) == 1 and "Fit y" in fig.axes[0].texts[0].get_text()

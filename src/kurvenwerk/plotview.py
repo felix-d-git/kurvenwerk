@@ -1,4 +1,5 @@
 """Plot-Bereich einer Seite (Canvas + Werkzeugleiste) und die Dialoge für Achsen, Stil, Reihe, Export."""
+import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.colors import is_color_like
 from matplotlib.figure import Figure
@@ -85,7 +86,7 @@ AXES_SPEC = [("title", "Titel", "math"), ("xlabel", "x-Achse", "math"), ("ylabel
              ("ymax", "y max", "num"), ("y2min", "2. y min", "num"), ("y2max", "2. y max", "num"),
              ("xlog", "x logarithmisch", "bool"), ("ylog", "y logarithmisch", "bool"),
              ("y2log", "2. y logarithmisch", "bool"), ("legend", "Legende", "bool"),
-             ("swap", "Achsen tauschen x↔y", "bool")]
+             ("swap", "Achsen tauschen x↔y", "bool"), ("residuals", "Residuenplot (bei Fit)", "bool")]
 STYLE_SPEC = [("marker", "Marker", plot.MARKERS), ("markersize", "Markergröße", "num"),
               ("linestyle", "Linie", plot.LINESTYLES), ("linewidth", "Linienbreite", "num"),
               ("capsize", "Fehlerbalken-Kappe", "num"), ("colors", "Farbfolge", "colors"),
@@ -125,7 +126,8 @@ class PlotPanel(QWidget):
         self.setObjectName("page")
         self.page, self.project, self.stack = page, project, stack
         self.canvas = FigureCanvasQTAgg(Figure(layout="constrained"))
-        self.canvas.mpl_connect("button_press_event", lambda e: e.dblclick and self.edit_axes())
+        self.canvas.mpl_connect("button_press_event", self.click)
+        self.drawn, self.set_fit = [], None  # set_fit(Spalte, fit) setzt PageView
         self.timer = QTimer(self, singleShot=True, interval=0)  # bündelt dataChanged + headerDataChanged
         self.timer.timeout.connect(self.redraw)
         bar = QHBoxLayout()
@@ -149,11 +151,38 @@ class PlotPanel(QWidget):
     def redraw(self):
         fig = self.canvas.figure
         try:
-            plot.draw(fig, self.page, self.project.style)
+            self.drawn = plot.draw(fig, self.page, self.project.style)
         except (ValueError, TypeError) as e:  # z.B. unpassende Achsengrenzen
+            self.drawn = []
             fig.clear()
             fig.text(0.5, 0.5, f"Plot nicht darstellbar:\n{e}", ha="center", va="center", wrap=True)
         self.canvas.draw_idle()
+
+    def hit(self, e):
+        """Nächster Punkt einer gefitteten Reihe im Umkreis von 8 px → (Reihe, Index) oder None."""
+        best, r = None, 8 * self.canvas.device_pixel_ratio
+        for a, s, x, y in self.drawn:
+            if not s.ycol.fit.get("formula"):
+                continue
+            with np.errstate(all="ignore"):
+                d = np.hypot(*(a.transData.transform(np.column_stack([x, y])) - (e.x, e.y)).T)
+            k = np.nanargmin(d) if np.isfinite(d).any() else None
+            if k is not None and d[k] <= r:
+                best, r = (s, k), d[k]
+        return best
+
+    def click(self, e):
+        """Klick auf Punkt einer gefitteten Reihe schaltet seinen Fit-Ausschluss um, Doppelklick sonst → Achsen."""
+        if e.button != 1:
+            return
+        h = self.hit(e)
+        if h and not e.dblclick and self.set_fit:
+            s, k = h
+            ex = sorted(set(s.ycol.fit.get("excluded", [])) ^ {int(s.rows[k])})
+            self.set_fit(s.ycol, _clean({**s.ycol.fit, "excluded": ex}, plot.fitting.FIT))
+            self.redraw()  # drawn sofort auf die neuen Spaltenobjekte, sonst greift ein schneller 2. Klick ins Leere
+        elif not h and e.dblclick:
+            self.edit_axes()
 
     def set_plot(self, new: dict, text: str):
         new = _clean(new, plot.PLOT)

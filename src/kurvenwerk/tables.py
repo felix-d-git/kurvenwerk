@@ -190,6 +190,11 @@ class TableModel(QAbstractTableModel):
             cols[j].style = style
         self.edit(fn, "Reihen-Stil")
 
+    def set_fit(self, j: int, fit: dict) -> None:
+        def fn(cols):
+            cols[j].fit = fit
+        self.edit(fn, "Fit")
+
     def add_y(self) -> None:
         self.edit(lambda cols: cols.append(Column(f"y{len(cols)}")), "Y-Spalte hinzufügen")
 
@@ -357,6 +362,21 @@ class TableView(QTableView):
         if v is not None:
             self.model().set_style(j, v)
 
+    def fit(self, j: int):
+        """Fit-Dialog für Spalte j; ist sie keine Y-Spalte, die erste Y-Spalte."""
+        from . import plot
+        from .fitview import FitDialog  # lazy: fitview → plot, tables → plotview
+        cols = self.model().table.columns
+        if j < 0 or cols[j].role != "Y":
+            j = next((k for k, c in enumerate(cols) if c.role == "Y"), -1)
+        s = next((s for s in plot.series(self.model().table) if j >= 0 and s.ycol is cols[j]), None)
+        if s is None:
+            QMessageBox.information(self, "Fit", "Keine Y-Spalte mit Daten (X und Y) in dieser Tabelle.")
+            return
+        d = FitDialog(s, self)
+        if d.exec() and d.result_fit != cols[j].fit:
+            self.model().set_fit(j, d.result_fit)
+
     def header_menu(self, j: int):
         m = QMenu(self)
         if j >= 0:
@@ -366,6 +386,7 @@ class TableView(QTableView):
             m.addAction("Einheit umrechnen …", lambda: self.convert_unit(j))
             if self.model().table.columns[j].role == "Y":
                 m.addAction("Reihen-Stil …", lambda: self.series_style(j))
+                m.addAction("Fit …", lambda: self.fit(j))
             m.addAction("Spalte löschen", lambda: self.model().remove_column(j))
         m.addAction("Y-Spalte hinzufügen", self.model().add_y)
         m.exec(self.cursor().pos())

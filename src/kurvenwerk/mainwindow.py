@@ -26,12 +26,21 @@ class PageView(QSplitter):
         self.row.addWidget(add, 0, Qt.AlignTop)
         self.tiles: list[TableTile] = []
         self.plot = PlotPanel(page, project, stack)
+        self.plot.set_fit = self.set_fit
         for t in page.tables:
             self.insert_tile(TableTile(t, stack))
         self.addWidget(tables)
         self.addWidget(self.plot)
         self.plot.setVisible(page.show_plot)
         self.setSizes([1, 1])
+
+    def set_fit(self, col, fit: dict):
+        """Fit der Spalte (Objekt aus dem Plot) über das Modell ihrer Tabelle → Undo."""
+        for t in self.tiles:
+            cols = t.model.table.columns
+            j = next((j for j, c in enumerate(cols) if c is col), None)
+            if j is not None:
+                t.model.set_fit(j, fit)
 
     def _signals(self, tile: TableTile):
         m = tile.model
@@ -127,6 +136,8 @@ class MainWindow(QMainWindow):
         g.addAction("A&chsen && Beschriftung …", QKeySequence("Ctrl+Shift+A"),
                     lambda: self.page_view().plot.edit_axes())
         g.addAction("&Exportieren …", QKeySequence("Ctrl+E"), lambda: self.page_view().plot.export())
+        g.addAction("&Fit …", QKeySequence("Ctrl+Shift+G"),
+                    lambda: (v := self.table_view()) and v.fit(v.currentIndex().column()))
         g.addSeparator()
         g.addAction("Plot-&Stil (Projekt) …", lambda: edit_style(self.project, self.stack, self, self.redraw_all))
         s = self.menuBar().addMenu("&Seite")
