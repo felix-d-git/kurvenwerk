@@ -3,12 +3,14 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QActionGroup, QKeySequence, QUndoStack
-from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QInputDialog, QMainWindow,
-                               QMessageBox, QSplitter, QTabWidget, QToolButton, QWidget)
+from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QMainWindow,
+                               QMenu, QMessageBox, QSplitter, QTabWidget, QToolButton, QWidget)
 
+from . import export
 from .model import Page, Project, Table
 from .plotview import AttrCmd, PlotPanel, edit_style
-from .tables import AddTableCmd, TableTile, TableView, paste_decimal, settings
+from .stats import summary
+from .tables import AddTableCmd, TableTile, TableView, paste_decimal, result_opts, settings
 
 FILTER = "Kurvenwerk-Projekt (*.kwproj);;JSON (*.json)"
 
@@ -97,12 +99,19 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
         self.stack = QUndoStack(self)
         self.stack.indexChanged.connect(self._changed)
+        self.stats, self.stats_label = ({"n": 0}, ""), QLabel(textFormat=Qt.PlainText,
+                                                       textInteractionFlags=Qt.TextSelectableByMouse)
+        self.stats_label.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.stats_label.customContextMenuRequested.connect(lambda p: self.copy_menu().exec(self.cursor().pos()))
+        self.statusBar().addWidget(self.stats_label, 1)
 
         m = self.menuBar().addMenu("&Datei")
         for text, key, slot in [("&Neu", QKeySequence.New, self.new),
                                 ("Ö&ffnen …", QKeySequence.Open, self.open),
                                 ("&Speichern", QKeySequence.Save, self.save),
                                 ("Speichern &unter …", QKeySequence.SaveAs, self.save_as),
+                                (None, None, None),
+                                ("Projekt e&xportieren …", QKeySequence(), self.export_project),
                                 (None, None, None),
                                 ("&Beenden", QKeySequence.Quit, self.close)]:
             if text is None:
@@ -122,6 +131,13 @@ class MainWindow(QMainWindow):
             a.setCheckable(True)
             a.setChecked(val == paste_decimal())
             group.addAction(a)
+        e.addSeparator()
+        for text, key, default in [("Ergebnisse &DIN-runden", "results/din", True),
+                                   ("Unsicherheit relativ in &%", "results/pct", False)]:
+            a = e.addAction(text, lambda on, k=key: (settings().setValue(k, on), self.show_stats(*self.stats)))
+            a.setCheckable(True)
+            a.setChecked(settings().value(key, default, type=bool))
+        e.addMenu(self.copy_menu())
         t = self.menuBar().addMenu("&Tabelle")
         t.addAction("&Neue Tabelle", QKeySequence("Ctrl+Shift+T"), lambda: self.page_view().add_table())
         t.addAction("&Y-Spalte hinzufügen", QKeySequence("Ctrl+Shift+Y"),
@@ -130,12 +146,14 @@ class MainWindow(QMainWindow):
                     lambda: (v := self.table_view()) and v.edit_column(v.currentIndex().column()))
         t.addAction("Spalten&werte setzen …", QKeySequence("Ctrl+Shift+F"),
                     lambda: (v := self.table_view()) and v.set_values(v.currentIndex().column()))
+        t.addAction("E&xportieren (CSV/xlsx/LaTeX) …", self.export_table)
         g = self.menuBar().addMenu("&Plot")
         g.addAction("Plot &anzeigen/ausblenden", QKeySequence("Ctrl+Shift+P"), lambda: self.page_view().toggle_plot())
         g.addAction("Achsen &tauschen x↔y", QKeySequence("Ctrl+Shift+X"), lambda: self.page_view().plot.swap())
         g.addAction("A&chsen && Beschriftung …", QKeySequence("Ctrl+Shift+A"),
                     lambda: self.page_view().plot.edit_axes())
         g.addAction("&Exportieren …", QKeySequence("Ctrl+E"), lambda: self.page_view().plot.export())
+        g.addAction("&Python-Skript exportieren …", self.export_script)
         g.addAction("&Fit …", QKeySequence("Ctrl+Shift+G"),
                     lambda: (v := self.table_view()) and v.fit(v.currentIndex().column()))
         g.addSeparator()
@@ -146,6 +164,65 @@ class MainWindow(QMainWindow):
         s.addAction("&Löschen", QKeySequence("Ctrl+W"), lambda: self.delete_page(self.tabs.currentIndex()))
 
         self.set_project(Project(), None)
+
+    # --- Statistik & Ausgabe ---
+    def show_stats(self, d: dict, unit: str):
+        self.stats = (d, unit)
+        self.stats_label.setText(summary(d, unit=unit, **result_opts()))
+
+    def copy_menu(self) -> QMenu:
+        m = QMenu("Statistik &kopieren", self)
+        for text, tex in [("als &Text", False), ("als &siunitx", True)]:
+            m.addAction(text, lambda t=tex: QApplication.clipboard().setText(
+                summary(self.stats[0], unit=self.stats[1], tex=t, **result_opts())))
+        return m
+
+    def _save_name(self, title: str, filters: str) -> str:
+        f, _ = QFileDialog.getSaveFileName(self, title, "", filters)
+        return f
+
+    def export_table(self):
+        v = self.table_view()
+        if v is None:
+            return
+        t = v.model().table
+        f = self._save_name("Tabelle exportieren", "CSV (*.csv);;Excel, alle Tabellen der Seite (*.xlsx);;"
+                                                   "LaTeX/siunitx (*.tex)")
+        if not f:
+            return
+        try:
+            if f.lower().endswith(".xlsx"):
+                export.write_xlsx(self.page_view().page.tables, f)
+            elif f.lower().endswith(".tex"):
+                Path(f).write_text(export.latex_table(t, result_opts()["rounded"]), encoding="utf-8")
+            else:
+                export.write_csv(t, f)
+        except OSError as e:
+            QMessageBox.critical(self, "Export fehlgeschlagen", str(e))
+
+    def export_script(self):
+        f = self._save_name("Python-Skript exportieren", "Python (*.py)")
+        if f:
+            try:
+                Path(f).write_text(export.python_script(self.page_view().page, self.project.style), encoding="utf-8")
+            except OSError as e:
+                QMessageBox.critical(self, "Export fehlgeschlagen", str(e))
+
+    def export_project(self):
+        d = QFileDialog.getExistingDirectory(self, "Zielordner für den Projekt-Export")
+        if not d:
+            return
+        name = self.path.stem if self.path else "Unbenannt"
+        root = Path(d) / f"{export.safe_name(name)}_Export"
+        if root.exists() and QMessageBox.question(
+                self, "Projekt exportieren", f"{root.name} existiert. Dateien darin überschreiben?") != QMessageBox.Yes:
+            return
+        try:
+            export.export_project(self.project, name, d)
+        except (OSError, ValueError) as e:
+            QMessageBox.critical(self, "Export fehlgeschlagen", str(e))
+            return
+        self.statusBar().showMessage(f"Exportiert nach {root.name}", 5000)
 
     def redraw_all(self):
         for i in range(self.tabs.count()):

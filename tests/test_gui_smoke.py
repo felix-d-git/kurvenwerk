@@ -84,3 +84,19 @@ def test_fit_click_excludes_point_and_dialog():
     assert d.result is not None and np.allclose(d.result.values, [2, 1])
     w.stack.undo()
     assert m.table.columns[1].fit == {"formula": "a*x + b"}
+
+
+def test_selection_stats_and_fit_report():
+    from PySide6.QtCore import QItemSelection, QItemSelectionModel
+    from kurvenwerk import plot
+    from kurvenwerk.fitview import FitDialog
+    w = MainWindow()
+    v = w.page_view().tiles[0].view
+    m = v.model()
+    m.set_cells({(i, j): float(i + 1) * (j + 1) + (0.1 if j and i % 2 else 0) for i in range(4) for j in (0, 1)}, "W")
+    v.selectionModel().select(QItemSelection(m.index(0, 1), m.index(3, 1)), QItemSelectionModel.ClearAndSelect)
+    assert w.stats[0]["n"] == 4 and "n = 4" in w.stats_label.text()
+    m.table.columns[1].fit = {"formula": "a*x + b"}
+    d = FitDialog(plot.series(m.table)[0], v)
+    d.preview()
+    assert "R²" in d.msg.text() and "adj. R²" in d.msg.text()

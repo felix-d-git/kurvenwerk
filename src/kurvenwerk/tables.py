@@ -25,6 +25,12 @@ def paste_decimal() -> str:
     return v if v in ("auto", ".", ",") else "auto"
 
 
+def result_opts() -> dict:
+    """Ausgabe von Ergebnissen: DIN-Rundung, Unsicherheit relativ in %."""
+    s = settings()
+    return {"rounded": s.value("results/din", True, type=bool), "pct": s.value("results/pct", False, type=bool)}
+
+
 def _tidy(cols: list[Column]) -> None:
     for c in cols:
         while c.values and c.values[-1] is None:
@@ -356,6 +362,30 @@ class TableView(QTableView):
                                 f"{old or '–'} → {new.strip()}: nur SI-Präfixe derselben Einheit (mV → V, cm² → m²).")
             return
         self.model().scale(j, k, new.strip())
+
+    def selectionChanged(self, sel, desel):
+        super().selectionChanged(sel, desel)
+        if hasattr(w := self.window(), "show_stats"):
+            w.show_stats(*self.selection_stats())
+
+    def selection_stats(self) -> tuple[dict, str]:
+        """Statistik der markierten Zellen (ab 2). Nur eine Spalte → deren Einheit und Δ-Spalte (gewichteter Mittelwert)."""
+        from . import plot
+        from .stats import describe
+        idx = self.selectedIndexes()
+        if len(idx) < 2:
+            return {"n": 0}, ""
+        m, cols = self.model(), self.model().table.columns
+        val = lambda i: float("nan") if (v := m._value(i)) is None else v  # noqa: E731
+        x = [val(i) for i in idx]
+        js = {i.column() for i in idx}
+        if len(js) > 1:
+            return describe(x), ""
+        j = js.pop()
+        e = plot._error(cols, j) if cols[j].role in ("X", "Y") else None
+        je = next((k for k, c in enumerate(cols) if c is e), None)
+        dx = None if je is None else [abs(val(m.index(i.row(), je))) for i in idx]
+        return describe(x, dx), cols[j].unit
 
     def series_style(self, j: int):
         v = series_style(self.model().table.columns[j].style, self)

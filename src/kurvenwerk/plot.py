@@ -17,13 +17,14 @@ LINESTYLES = ("none", "-", "--", ":", "-.")
 STYLE = {"marker": "o", "markersize": 5.0, "linestyle": "none", "linewidth": 1.2, "capsize": 3.0,
          "fontsize": 10.0, "font": "serif", "grid": True,
          "colors": "#1f77b4, #d62728, #2ca02c, #ff7f0e, #9467bd, #8c564b",
-         "export_w": 15.0, "export_h": 10.0, "export_dpi": 300}
+         "fit_alpha": 1.0, "export_w": 15.0, "export_h": 10.0, "export_dpi": 300}
 # Achsen/Beschriftung pro Seite (Page.plot); None bei Grenzen = automatisch
 PLOT = {"title": "", "xlabel": "", "ylabel": "", "y2label": "", "xlog": False, "ylog": False,
         "y2log": False, "xmin": None, "xmax": None, "ymin": None, "ymax": None, "y2min": None,
         "y2max": None, "legend": True, "swap": False, "residuals": False}
 # Überschreiben pro Reihe (Column.style); "" = Projektstil
-SERIES = {"label": "", "color": "", "marker": "", "linestyle": "", "axis": "y"}
+SERIES = {"label": "", "color": "", "marker": "", "markersize": None, "linestyle": "", "axis": "y",
+          "errorbars": True, "fit_alpha": None}
 
 _mathtext = MathTextParser("path")
 
@@ -115,6 +116,13 @@ def run_fit(s: Series) -> tuple[fitting.Result, np.ndarray]:
     return fitting.fit(s.ycol.fit.get("formula", ""), s.x[m], s.y[m], cut(s.dx), cut(s.dy), s.ycol.fit.get("params")), m
 
 
+def fit_alpha(s: Series, st: dict) -> float:
+    """Deckkraft der Fitkurve: Reihe vor Projektstil, auf 0…1 begrenzt."""
+    a = s.ycol.style.get("fit_alpha")
+    a = st["fit_alpha"] if a is None else a
+    return min(max(float(a), 0.0), 1.0) if a == a else 1.0  # NaN → deckend
+
+
 def _auto(names: list[str]) -> str:
     return ", ".join(dict.fromkeys(n for n in names if n))
 
@@ -159,13 +167,14 @@ def draw(fig: Figure, page: Page, style: dict) -> list[tuple]:
         ls = o["linestyle"] or st["linestyle"]
         color = o["color"] or colors[i % len(colors)]
         out = np.isin(s.rows, s.ycol.fit.get("excluded", []))  # ausgeschlossen → hohl, ohne Balken
-        cut = lambda v: None if v is None else v[~out]  # noqa: E731
+        cut = lambda v: None if v is None or not o["errorbars"] else v[~out]  # noqa: E731
+        ms = o["markersize"] or st["markersize"]
         a.errorbar(x[~out], y[~out], xerr=cut(dx), yerr=cut(dy), label=safe(o["label"] or heading(s.ycol)),
                    color=color, marker=o["marker"] or st["marker"],
-                   markersize=st["markersize"], linestyle="none" if ls == "none" else ls,
+                   markersize=ms, linestyle="none" if ls == "none" else ls,
                    linewidth=st["linewidth"], capsize=st["capsize"], elinewidth=st["linewidth"] * 0.8)
         if out.any():
-            a.plot(x[out], y[out], linestyle="none", marker=o["marker"] or st["marker"], markersize=st["markersize"],
+            a.plot(x[out], y[out], linestyle="none", marker=o["marker"] or st["marker"], markersize=ms,
                    markerfacecolor="none", markeredgecolor=color, alpha=0.6)
         drawn.append((a, s, x, y))
         r = fits.get(id(s))
@@ -214,7 +223,7 @@ def _draw_fit(a, rax, s: Series, r: fitting.Result, m: np.ndarray, color, st: di
     xs = np.geomspace(lo, hi, 400) if pl["xlog"] and lo > 0 else np.linspace(lo, hi, 400)
     ys = r(xs)
     pts = (ys, xs) if swap else (xs, ys)
-    a.plot(*pts, color=color, linewidth=st["linewidth"] * 1.2, label=f"Fit {s.ycol.name}")
+    a.plot(*pts, color=color, linewidth=st["linewidth"] * 1.2, alpha=fit_alpha(s, st), label=f"Fit {s.ycol.name}")
     if f["band"] in ("conf", "pred"):
         h = r.band(xs, f["band"], f["level"])
         (a.fill_betweenx if swap else a.fill_between)(xs, ys - h, ys + h, color=color, alpha=0.15, linewidth=0)

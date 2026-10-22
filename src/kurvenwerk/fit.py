@@ -68,6 +68,17 @@ class Result:
     method: str
     _f: object
     _jac: list
+    # Güte; R² mit denselben Gewichten wie χ², RMSE der ungewichteten Residuen, p nur bei Gewichten (χ²-Test)
+    r2: float = np.nan
+    r2adj: float = np.nan
+    rmse: float = np.nan
+    p: float = np.nan
+
+    @property
+    def corr(self) -> np.ndarray:
+        d = np.sqrt(np.diag(self.cov))
+        with np.errstate(all="ignore"):
+            return self.cov / np.outer(d, d)
 
     def __call__(self, x) -> np.ndarray:
         return _eval(self._f, x, self.values)
@@ -149,6 +160,12 @@ def fit(text: str, x, y, dx=None, dy=None, spec: dict | None = None) -> Result:
     errors[free] = np.sqrt(np.abs(np.diag(pcov)))
     # ponytail: Prognoseband gewichtet mit mittlerer Messvarianz, punktweises σ(x) erst wenn gefragt
     s2 = float(np.mean(sigma ** 2)) if sigma is not None else float(r @ r / ndf) if ndf else np.nan
+    wt = 1 / sigma ** 2 if sigma is not None else np.ones_like(y)
+    sst = float(wt @ (y - wt @ y / wt.sum()) ** 2)
+    chi2 = float(w @ w)
+    r2 = 1 - chi2 / sst if sst > 0 else np.nan
+    q = dict(r2=r2, r2adj=1 - (1 - r2) * (len(x) - 1) / ndf if ndf else np.nan, rmse=float(np.sqrt(np.mean(r ** 2))),
+             p=float(stats.chi2.sf(chi2, ndf)) if sigma is not None and ndf else np.nan)
     method = "effektive Varianz (Δx, Δy)" if wx else "gewichtet (Δy)" if wy else "ungewichtet"
-    return Result(names, full(p), errors, free, pcov, float(w @ w), ndf, sigma is not None, s2, method, f, jac)
+    return Result(names, full(p), errors, free, pcov, chi2, ndf, sigma is not None, s2, method, f, jac, **q)
 

@@ -1,14 +1,17 @@
 """Fit-Dialog einer Y-Spalte: Vorlage/Formel, Parameter (Start, Grenzen, fix), Bereich, Band, Vorschau."""
+import html
 import json
 from dataclasses import replace
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtWidgets import (QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QHBoxLayout, QInputDialog,
+from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QHBoxLayout, QInputDialog,
                                QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem)
 
 from . import fit as fitting
 from . import plot
 from .formula import FormulaError, number
+from .stats import fit_report
+from .tables import result_opts
 
 OWN = "fit/templates"  # eigene Vorlagen gerätweit in QSettings, nicht im Projekt
 COLS = ("Startwert", "min", "max")
@@ -90,6 +93,8 @@ class FitDialog(QDialog):
         lay.addRow(self.msg)
         row = QHBoxLayout()
         for text, slot in [("Fitten", self.preview), ("Ergebnis → Startwerte", self.adopt),
+                           ("Kopieren (Text)", lambda: self.copy(False)),
+                           ("Kopieren (siunitx)", lambda: self.copy(True)),
                            ("Fit entfernen", self.remove), ("OK", self.ok), ("Abbrechen", self.reject)]:
             b = QPushButton(text)
             b.clicked.connect(slot)
@@ -155,11 +160,14 @@ class FitDialog(QDialog):
             self.result = None
             self.msg.setText(f"<span style='color:#d62728'>{e}</span>")
             return
-        r = self.result
-        lines = [f"{n} = {v:.6g} ± {e:.2g}" + ("" if fr else " (fix)")
-                 for n, v, e, fr in zip(r.params, r.values, r.errors, r.free)]
-        chi = f"χ²/ndf = {r.chi2:.4g}/{r.ndf}" if r.absolute else f"Residuen² = {r.chi2:.4g}, ndf = {r.ndf}"
-        self.msg.setText("<br>".join(lines + [chi, f"Methode: {r.method}"]))
+        self.msg.setText(f"<pre>{html.escape(fit_report(self.result, **result_opts()))}</pre>")
+
+    def copy(self, tex: bool):
+        """Ergebnis in die Zwischenablage; ohne aktuelles Ergebnis wird erst gefittet."""
+        if self.result is None:
+            self.preview()
+        if self.result is not None:
+            QApplication.clipboard().setText(fit_report(self.result, tex=tex, **result_opts()))
 
     def adopt(self):
         if self.result is None:

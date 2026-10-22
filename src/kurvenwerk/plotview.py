@@ -28,8 +28,9 @@ class FormDialog(QDialog):
                 w = QCheckBox(checked=bool(v))
             elif isinstance(kind, tuple):
                 w = QComboBox()  # nur Auswahl → kein ungültiger Marker/Linienstil
-                w.addItems(kind)
-                w.setCurrentText(str(v))
+                for k in kind:
+                    w.addItem(NAMES.get(k, k), k)
+                w.setCurrentIndex(max(w.findData(v), 0))
             else:
                 w = QLineEdit("" if v is None else f"{v:g}" if isinstance(v, float) else str(v))
             if kind == "math":
@@ -53,7 +54,7 @@ class FormDialog(QDialog):
             if kind == "bool":
                 out[key] = w.isChecked()
                 continue
-            t = (w.currentText() if isinstance(kind, tuple) else w.text()).strip()
+            t = (w.currentData() if isinstance(kind, tuple) else w.text()).strip()
             err = None
             if kind == "num":
                 try:
@@ -89,12 +90,19 @@ AXES_SPEC = [("title", "Titel", "math"), ("xlabel", "x-Achse", "math"), ("ylabel
              ("swap", "Achsen tauschen x↔y", "bool"), ("residuals", "Residuenplot (bei Fit)", "bool")]
 STYLE_SPEC = [("marker", "Marker", plot.MARKERS), ("markersize", "Markergröße", "num"),
               ("linestyle", "Linie", plot.LINESTYLES), ("linewidth", "Linienbreite", "num"),
-              ("capsize", "Fehlerbalken-Kappe", "num"), ("colors", "Farbfolge", "colors"),
+              ("capsize", "Fehlerbalken-Kappe", "num"), ("fit_alpha", "Fit-Deckkraft (0–1)", "num"), ("colors", "Farbfolge", "colors"),
               ("font", "Schrift", ("serif", "sans-serif", "monospace")), ("fontsize", "Schriftgröße (pt)", "num"),
               ("grid", "Gitter", "bool")]
 SERIES_SPEC = [("label", "Legende", "math"), ("color", "Farbe", "color"),
-               ("marker", "Marker", ("",) + plot.MARKERS), ("linestyle", "Linie", ("",) + plot.LINESTYLES),
+               ("marker", "Marker", ("",) + plot.MARKERS), ("markersize", "Markergröße", "num"),
+               ("linestyle", "Linie", ("",) + plot.LINESTYLES), ("errorbars", "Fehlerbalken", "bool"),
+               ("fit_alpha", "Fit-Deckkraft (0–1)", "num"),
                ("axis", "Achse", ("y", "y2"))]
+# Anzeigenamen für Auswahlwerte; gespeichert wird der matplotlib-Code
+NAMES = {"": "wie Projektstil", "o": "● Kreis", "s": "■ Quadrat", "^": "▲ Dreieck", "v": "▼ Dreieck unten",
+         "D": "◆ Raute", "x": "× Kreuz", "+": "+ Plus", ".": "· kleiner Punkt", "none": "keine",
+         "-": "durchgezogen (Punkte verbinden)", "--": "gestrichelt", ":": "gepunktet", "-.": "Strich-Punkt",
+         "y2": "2. y-Achse"}
 EXPORT_SPEC = [("export_w", "Breite (cm)", "num"), ("export_h", "Höhe (cm)", "num"), ("export_dpi", "DPI", "num")]
 FILTERS = {"png": "PNG-Bild (*.png)", "pdf": "PDF (*.pdf)", "svg": "SVG (*.svg)", "pgf": "PGF für LaTeX (*.pgf)"}
 
@@ -230,7 +238,7 @@ def edit_style(project: Project, stack, parent, after) -> None:
     v = ask("Plot-Stil (Projekt)", STYLE_SPEC, {**plot.STYLE, **project.style}, parent)
     if v is None:
         return
-    for k in ("markersize", "linewidth", "capsize", "fontsize"):
+    for k in ("markersize", "linewidth", "capsize", "fontsize", "fit_alpha"):
         if v[k] is None or not v[k] >= 0 or (k == "fontsize" and v[k] == 0):  # auch NaN
             v[k] = plot.STYLE[k]
     new = _clean({**project.style, **v}, plot.STYLE)
