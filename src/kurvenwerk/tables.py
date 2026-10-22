@@ -1,0 +1,298 @@
+"""Tabellen-Kachel: Modell über model.Table, Excel-artige Navigation, Paste, Undo per Snapshot."""
+from copy import deepcopy
+
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSettings, Qt, Signal
+from PySide6.QtGui import QKeySequence, QUndoCommand
+from PySide6.QtWidgets import (QAbstractItemDelegate, QApplication, QComboBox, QDialog,
+                               QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+                               QMenu, QTableView, QToolButton, QVBoxLayout, QWidget)
+
+from .model import ROLES, Column, Table
+from .paste import parse, to_float
+
+MIN_ROWS = 20
+
+
+def settings() -> QSettings:
+    return QSettings("Kurvenwerk", "Kurvenwerk")
+
+
+def paste_decimal() -> str:
+    v = settings().value("paste/decimal", "auto")
+    return v if v in ("auto", ".", ",") else "auto"
+
+
+def _tidy(cols: list[Column]) -> None:
+    for c in cols:
+        while c.values and c.values[-1] is None:
+            c.values.pop()
+
+
+class TableCmd(QUndoCommand):
+    # ponytail: Snapshot der ganzen Tabelle pro Schritt; Diff-Kommandos, falls Tabellen sehr groß werden
+    def __init__(self, model: "TableModel", old: list[Column], new: list[Column], text: str):
+        super().__init__(text)
+        self.model, self.old, self.new = model, old, new
+
+    def redo(self):
+        self.model.apply(self.new)
+
+    def undo(self):
+        self.model.apply(self.old)
+
+
+class TableModel(QAbstractTableModel):
+    def __init__(self, table: Table, stack):
+        super().__init__()
+        self.table, self.stack = table, stack
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else max(max((len(c.values) for c in self.table.columns), default=0) + 1,
+                                               MIN_ROWS)
+
+    def columnCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.table.columns)
+
+    def _value(self, i: QModelIndex):
+        vals = self.table.columns[i.column()].values
+        return vals[i.row()] if i.row() < len(vals) else None
+
+    def data(self, i, role=Qt.DisplayRole):
+        if role in (Qt.DisplayRole, Qt.EditRole):
+            v = self._value(i)
+            return "" if v is None else format(v, ".15g")
+        if role == Qt.TextAlignmentRole:
+            return int(Qt.AlignRight | Qt.AlignVCenter)
+        return None
+
+    def flags(self, i):
+        return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable
+
+    def headerData(self, s, orient, role=Qt.DisplayRole):
+        if role != Qt.DisplayRole:
+            return None
+        if orient == Qt.Vertical:
+            return str(s + 1)
+        c = self.table.columns[s]
+        return f"{c.name} / {c.unit}\n{c.role}" if c.unit else f"{c.name}\n{c.role}"
+
+    def setData(self, i, value, role=Qt.EditRole):
+        if role != Qt.EditRole:
+            return False
+        text = str(value).strip()
+        v = to_float(text) if text else None
+        if text and v is None:
+            return False  # keine Zahl → Eingabe verwerfen
+        if v != self._value(i):
+            self.set_cells({(i.row(), i.column()): v}, "Zelle ändern")
+        return True
+
+    # --- Änderungen (alle über den Undo-Stack) ---
+    def edit(self, fn, text: str) -> None:
+        cols = deepcopy(self.table.columns)
+        fn(cols)
+        _tidy(cols)
+        if cols != self.table.columns:
+            self.stack.push(TableCmd(self, deepcopy(self.table.columns), cols, text))
+
+    def set_cells(self, cells: dict[tuple[int, int], float | None], text: str) -> None:
+        def fn(cols):
+            for (r, c), v in cells.items():
+                vals = cols[c].values
+                vals.extend([None] * (r + 1 - len(vals)))
+                vals[r] = v
+        self.edit(fn, text)
+
+    def apply(self, cols: list[Column]) -> None:
+        rows, ncols = self.rowCount(), self.columnCount()
+        if len(cols) != ncols:
+            self.beginResetModel()
+            self.table.columns = deepcopy(cols)
+            self.endResetModel()
+            return
+        new_rows = max(max((len(c.values) for c in cols), default=0) + 1, MIN_ROWS)
+        if new_rows > rows:
+            self.beginInsertRows(QModelIndex(), rows, new_rows - 1)
+        elif new_rows < rows:
+            self.beginRemoveRows(QModelIndex(), new_rows, rows - 1)
+        self.table.columns = deepcopy(cols)
+        if new_rows > rows:
+            self.endInsertRows()
+        elif new_rows < rows:
+            self.endRemoveRows()
+        if ncols:
+            self.dataChanged.emit(self.index(0, 0), self.index(new_rows - 1, ncols - 1))
+            self.headerDataChanged.emit(Qt.Horizontal, 0, ncols - 1)
+
+    def paste(self, text: str, row: int, col: int, decimal: str) -> None:
+        headers, data = parse(text, decimal)
+        if not data:
+            return
+
+        def fn(cols):
+            for j, vals in enumerate(data):
+                if col + j >= len(cols):
+                    cols.append(Column(f"y{len(cols)}"))
+                c = cols[col + j]
+                if headers and headers[j][0]:
+                    c.name, c.unit = headers[j]
+                    if col + j >= len(self.table.columns) and c.name.startswith("Δ"):
+                        x = next((k.name for k in cols if k.role == "X"), None)
+                        c.role = "Δx" if c.name[1:] == x else "Δy"
+                c.values.extend([None] * (row + len(vals) - len(c.values)))
+                c.values[row:row + len(vals)] = vals
+        self.edit(fn, "Einfügen")
+
+    def set_column(self, j: int, name: str, unit: str, role: str) -> None:
+        def fn(cols):
+            if role == "X":  # ein X pro Tabelle
+                for c in cols:
+                    if c.role == "X":
+                        c.role = "Y"
+            cols[j].name, cols[j].unit, cols[j].role = name, unit, role
+        self.edit(fn, "Spalte bearbeiten")
+
+    def add_y(self) -> None:
+        self.edit(lambda cols: cols.append(Column(f"y{len(cols)}")), "Y-Spalte hinzufügen")
+
+    def remove_column(self, j: int) -> None:
+        if self.columnCount() > 1:
+            self.edit(lambda cols: cols.pop(j), "Spalte löschen")
+
+
+class ColumnDialog(QDialog):
+    def __init__(self, c: Column, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Spalte")
+        f = QFormLayout(self)
+        self.name, self.unit = QLineEdit(c.name), QLineEdit(c.unit)
+        self.role = QComboBox()
+        self.role.addItems(ROLES)
+        self.role.setCurrentText(c.role)
+        f.addRow("Größe", self.name)
+        f.addRow("Einheit", self.unit)
+        f.addRow("Rolle", self.role)
+        b = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        b.accepted.connect(self.accept)
+        b.rejected.connect(self.reject)
+        f.addRow(b)
+
+
+class TableView(QTableView):
+    """Tab/Shift+Tab → rechts/links (am Rand in die Nachbarkachel), Enter/Shift+Enter → runter/hoch
+    zurück in die Spalte, in der die Tab-Folge begann (wie Excel). F6/Shift+F6 → Nachbarkachel."""
+    tile = Signal(int, int, int)  # Richtung ±1, Zeile, Spalte (-1 = letzte)
+
+    def __init__(self, model: TableModel):
+        super().__init__()
+        self.setModel(model)
+        self.setAlternatingRowColors(True)
+        self.origin = None  # Spalte, in der eine Tab-Folge begann
+        h = self.horizontalHeader()
+        h.sectionDoubleClicked.connect(self.edit_column)
+        h.setContextMenuPolicy(Qt.CustomContextMenu)
+        h.customContextMenuRequested.connect(lambda p: self.header_menu(h.logicalIndexAt(p)))
+        self.verticalHeader().setDefaultSectionSize(24)
+
+    def navigate(self, key, shift: bool) -> None:
+        cur = self.currentIndex()
+        r, c = (cur.row(), cur.column()) if cur.isValid() else (0, 0)
+        if key == Qt.Key_Tab:
+            if self.origin is None:
+                self.origin = c
+            c += -1 if shift else 1
+            if not 0 <= c < self.model().columnCount():
+                self.origin = None
+                self.tile.emit(-1 if shift else 1, r, -1 if shift else 0)
+                return
+        else:  # Enter
+            r = max(0, min(r + (-1 if shift else 1), self.model().rowCount() - 1))
+            c, self.origin = (c if self.origin is None else self.origin), None
+        self.setCurrentIndex(self.model().index(r, c))
+
+    def keyPressEvent(self, e):
+        shift = bool(e.modifiers() & Qt.ShiftModifier)
+        if e.key() in (Qt.Key_Tab, Qt.Key_Backtab):
+            self.navigate(Qt.Key_Tab, shift or e.key() == Qt.Key_Backtab)
+        elif e.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.navigate(Qt.Key_Return, shift)
+        elif e.key() == Qt.Key_F6:
+            cur = self.currentIndex()
+            self.tile.emit(-1 if shift else 1, max(cur.row(), 0), max(cur.column(), 0))
+        elif e.matches(QKeySequence.Paste):
+            self.paste()
+        elif e.key() in (Qt.Key_Delete, Qt.Key_Backspace):
+            self.model().set_cells({(i.row(), i.column()): None for i in self.selectedIndexes()},
+                                   "Zellen leeren")
+        else:
+            if not e.text() and e.key() not in (Qt.Key_Shift, Qt.Key_Control, Qt.Key_Alt):
+                self.origin = None  # Pfeiltasten u. Ä. beenden die Tab-Folge, Tippen nicht
+            super().keyPressEvent(e)
+
+    def mousePressEvent(self, e):
+        self.origin = None
+        super().mousePressEvent(e)
+
+    def closeEditor(self, editor, hint):
+        # Tab schluckt der Delegate und meldet EditNext/PreviousItem; Enter läuft als Tastendruck
+        # bis keyPressEvent durch (Wechsel der Zelle schließt den Editor mit Übernahme).
+        nav = {QAbstractItemDelegate.EditNextItem: False, QAbstractItemDelegate.EditPreviousItem: True}.get(hint)
+        super().closeEditor(editor, QAbstractItemDelegate.NoHint if nav is not None else hint)
+        if nav is not None:
+            self.navigate(Qt.Key_Tab, nav)
+
+    def paste(self):
+        cur = self.currentIndex()
+        r, c = (cur.row(), cur.column()) if cur.isValid() else (0, 0)
+        self.model().paste(QApplication.clipboard().text(), r, c, paste_decimal())
+
+    def edit_column(self, j: int):
+        if j < 0:
+            return
+        d = ColumnDialog(self.model().table.columns[j], self)
+        if d.exec():
+            self.model().set_column(j, d.name.text().strip(), d.unit.text().strip(), d.role.currentText())
+
+    def header_menu(self, j: int):
+        m = QMenu(self)
+        if j >= 0:
+            m.addAction("Spalte bearbeiten …", lambda: self.edit_column(j))
+            m.addAction("Spalte löschen", lambda: self.model().remove_column(j))
+        m.addAction("Y-Spalte hinzufügen", self.model().add_y)
+        m.exec(self.cursor().pos())
+
+
+class TableTile(QWidget):
+    """Kachel: Titelzeile (Name, + Y) über der Tabelle."""
+
+    def __init__(self, table: Table, stack):
+        super().__init__()
+        self.setObjectName("page")
+        self.model = TableModel(table, stack)
+        self.view = TableView(self.model)
+        top = QHBoxLayout()
+        top.addWidget(QLabel(table.name))
+        top.addStretch()
+        add = QToolButton(text="+ Y", toolTip="Y-Spalte hinzufügen")
+        add.clicked.connect(self.model.add_y)
+        top.addWidget(add)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addLayout(top)
+        lay.addWidget(self.view)
+
+
+class AddTableCmd(QUndoCommand):
+    """Kachel bleibt über Undo/Redo dasselbe Objekt → spätere TableCmds zeigen weiter aufs richtige Modell."""
+
+    def __init__(self, page_view, table: Table):
+        super().__init__("Tabelle hinzufügen")
+        self.pv, self.tile = page_view, TableTile(table, page_view.stack)
+
+    def redo(self):
+        self.pv.page.tables.append(self.tile.model.table)
+        self.pv.insert_tile(self.tile)
+
+    def undo(self):
+        self.pv.page.tables.pop()
+        self.pv.remove_tile(self.tile)
