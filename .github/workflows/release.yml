@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # check_privacy.py prüft die komplette History
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten
+        run: pip install -e . pyinstaller==6.22.3 pytest
+
+      - name: Tests
+        run: python -m pytest -q
+
+      - name: Build
+        run: |
+          pyinstaller packaging/kurvenwerk.spec --noconfirm
+          $v = "$env:GITHUB_REF_NAME".TrimStart("v")
+          Compress-Archive -Path dist/Kurvenwerk -DestinationPath "Kurvenwerk-$v.zip"
+          "ZIP=Kurvenwerk-$v.zip" >> $env:GITHUB_ENV
+
+      - name: Datenschutz-Check (Repo + Artefakte)
+        run: python scripts/check_privacy.py --extra dist/Kurvenwerk $env:ZIP
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create $env:GITHUB_REF_NAME $env:ZIP --title "Kurvenwerk $env:GITHUB_REF_NAME" --generate-notes

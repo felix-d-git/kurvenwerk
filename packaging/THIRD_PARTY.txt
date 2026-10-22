@@ -1,0 +1,32 @@
+Kurvenwerk — Lizenzen der mitgelieferten Komponenten
+=====================================================
+
+Kurvenwerk selbst: MIT, siehe LICENSE.
+
+Qt for Python (PySide6, Shiboken6) und Qt 6
+-------------------------------------------
+Lizenz: GNU Lesser General Public License v3 (LGPL-3.0), siehe
+licenses/LGPL-3.0.txt und licenses/GPL-3.0.txt.
+Quelltext: https://code.qt.io/cgit/pyside/pyside-setup.git und https://download.qt.io/official_releases/qt/
+Verwendete Version: siehe Ordnername licenses/PySide6-<version>/.
+
+Austauschbarkeit: Kurvenwerk wird bewusst als Ordner (nicht als Einzel-.exe) ausgeliefert.
+Die Qt- und PySide6-Bibliotheken liegen unverändert als eigene Dateien unter
+_internal/PySide6/ (z.B. Qt6Core.dll, Qt6Gui.dll, Qt6Widgets.dll, QtCore.pyd) und
+_internal/shiboken6/. Sie können durch eigene, ABI-kompatible Builds derselben
+Qt-/PySide6-Version ersetzt werden; Kurvenwerk lädt sie beim Start dynamisch.
+
+Weitere Python-Bibliotheken
+---------------------------
+Die Lizenztexte aller gebündelten Pakete liegen unter licenses/<Paket>-<version>/, u.a.:
+Matplotlib (PSF-artig/BSD), NumPy (BSD-3), SciPy (BSD-3), SymPy (BSD-3), mpmath (BSD-3),
+openpyxl (MIT), et_xmlfile (MIT), Pillow (MIT-CMU), contourpy (BSD-3), kiwisolver (BSD-3),
+cycler (BSD-3), fonttools (MIT), pyparsing (MIT), python-dateutil (Apache-2.0/BSD-3), six (MIT),
+packaging (Apache-2.0/BSD-2).
+ANTLR 4 Python-Runtime (antlr4-python3-runtime): BSD-3-Clause, https://github.com/antlr/antlr4/blob/master/LICENSE.txt
+Python-Laufzeit: PSF License, siehe licenses/Python/LICENSE.txt.
+
+Schriften
+---------
+Manrope und IBM Plex Mono: SIL Open Font License 1.1, siehe
+_internal/kurvenwerk/style/fonts/OFL-*.txt.

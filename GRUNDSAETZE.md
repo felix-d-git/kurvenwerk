@@ -30,7 +30,7 @@ Farben, Radien und Schriften nur aus den Tokens in `src/kurvenwerk/style/`. Schr
 → **Erkennt man an drei Screenshots, dass das dieselbe App ist?**
 
 ## 6. Es muss rechnen
-Fertig heißt: Self-Checks grün (`python -m kurvenwerk.selfcheck` bzw. `tests/`). Fit, Statistik,
+Fertig heißt: Self-Checks grün (`python -m pytest -q` über `tests/`). Fit, Statistik,
 Rundung und Fehlerfortpflanzung werden gegen bekannte Referenzwerte geprüft, nicht gegen sich selbst.
 → **Schlägt die Prüfung ohne den Fix fehl?**
 

@@ -103,6 +103,15 @@ def test_polynomial_noise_free():
     np.testing.assert_allclose(fit(polynomial(3), x, 1 - 2 * x + 0.5 * x ** 3).values, [1, -2, 0, 0.5], atol=1e-9)
 
 
+def test_nist_misra1a_certified():
+    """NIST StRD Misra1a (nichtlinear, Schwierigkeit niedrig), Start 1: zertifizierte Werte + Fehler."""
+    x = np.array([77.6, 114.9, 141.1, 190.8, 239.9, 289.0, 332.8, 378.4, 434.8, 477.3, 536.8, 593.1, 689.1, 760.0])
+    y = np.array([10.07, 14.73, 17.94, 23.93, 29.61, 35.18, 40.02, 44.82, 50.76, 55.05, 61.01, 66.40, 75.47, 81.78])
+    r = fit("b1*(1 - exp(-b2*x))", x, y, spec={"b1": {"value": 500}, "b2": {"value": 1e-4}})
+    np.testing.assert_allclose(r.values, [2.3894212918e02, 5.5015643181e-04], rtol=1e-6)
+    np.testing.assert_allclose(r.errors, [2.7070075241e00, 7.2668688436e-06], rtol=1e-4)
+
+
 def test_bad_formulas_raise_fit_error():
     for t in ("", "2*x", "a*x + 1/0"):
         with pytest.raises(FitError):

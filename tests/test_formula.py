@@ -74,6 +74,16 @@ def test_gauss_quotient_and_chain():
     assert by["S"].values[0] == pytest.approx(2) and by["ΔS"].values[0] == pytest.approx(3 / 18)
 
 
+def test_gauss_nonlinear():
+    # f = ln(U) → Δf = ΔU/U = 0,05; g = U²·sin(I) → Δg = √((2U·sin I·ΔU)² + (U²·cos I·ΔI)²)
+    cols = table() + [Column("f", "", "Y", formula=r"\ln(U)", gauss=True),
+                      Column("g", "", "Y", formula="U^2*sin(I)", gauss=True)]
+    assert recompute(cols) == {}
+    by = {c.name: c for c in cols}
+    assert by["Δf"].values[0] == pytest.approx(0.05)
+    assert by["Δg"].values[0] == pytest.approx(math.hypot(4 * math.sin(3) * 0.1, 4 * math.cos(3) * 0.2))
+
+
 def test_row_index_cycle_and_errors():
     cols = [Column("x", "", "X", [1.0, 2.0, 3.0]), Column("y", formula="0.5*i")]
     recompute(cols)
