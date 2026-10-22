@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kurvenwerk"
+version = "0.1.0"
+description = "Messwerte erfassen, auswerten, fitten und plotten"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+dependencies = [
+    "PySide6>=6.7",
+    "matplotlib>=3.9",
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "sympy>=1.13",
+    "antlr4-python3-runtime==4.11.*",
+    "openpyxl>=3.1",
+]
+
+[project.gui-scripts]
+kurvenwerk = "kurvenwerk.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

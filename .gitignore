@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+
+# Lokal / privat — nie ins Repo
+CLAUDE.local.md
+.privacy-patterns.txt
+.claude/
+graphify-out/
+.playwright-mcp/
+*.log
+
+# Nutzerdaten (Projekte, Exporte) — Testdaten nur synthetisch unter tests/data/
+*.kwproj
+*_Export/

@@ -1,0 +1,7 @@
+#!/bin/sh
+# Installation: cp scripts/pre-push .git/hooks/pre-push
+for py in .venv/Scripts/python.exe .venv/bin/python python; do
+  if command -v "$py" >/dev/null 2>&1 || [ -x "$py" ]; then exec "$py" scripts/check_privacy.py; fi
+done
+echo "pre-push: kein Python gefunden" >&2
+exit 1
