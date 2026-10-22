@@ -1,6 +1,8 @@
 """Headless: Tabellenmodell, Excel-Navigation, Paste, Undo/Redo."""
 import os
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt  # noqa: E402
@@ -98,3 +100,27 @@ def test_columns_roles_and_add_table_undo():
     while w.stack.canRedo():
         w.stack.redo()
     assert len(pv.tiles) == 2 and [c.role for c in m.table.columns] == ["Y", "X"]
+
+
+def test_formula_column_scale_and_cell_formula():
+    w, pv, v, v2 = window()
+    m = v.model()
+    m.paste("U / mV\tI / mA\tΔU / mV\n2\t3\t0,1\n4\t5\t0,1", 0, 0, "auto")
+    m.add_y()
+    m.set_formula(3, "U*I", True)  # Spalte P → ΔP wird angelegt, ΔI fehlt → nur U-Anteil
+    assert [c.name for c in m.table.columns] == ["U", "I", "ΔU", "y3", "Δy3"]
+    assert m.table.columns[3].values == [6.0, 20.0] and m.table.columns[4].values == pytest.approx([0.3, 0.5])
+    assert not m.flags(m.index(0, 3)) & Qt.ItemIsEditable
+    m.set_cells({(1, 0): 10.0}, "Zelle ändern")  # Quelle ändern → live neu berechnet
+    assert m.table.columns[3].values == [6.0, 50.0]
+    m.scale(0, 1e-3, "V")  # mV → V, ΔU zieht mit
+    assert m.table.columns[0].values == [0.002, 0.01] and (m.table.columns[2].unit, m.table.columns[2].values) == ("V", [1e-4, 1e-4])
+    assert m.table.columns[3].values == pytest.approx([0.006, 0.05])
+    assert m.setData(m.index(2, 1), "=2*i+1") and m.table.columns[1].values[2] == 7.0
+    assert not m.setData(m.index(2, 1), "=os")
+    w.stack.undo()
+    w.stack.undo()
+    assert m.table.columns[0].values == [2.0, 10.0]
+    while w.stack.canUndo():
+        w.stack.undo()
+    assert [c.name for c in m.table.columns] == ["x", "y"]

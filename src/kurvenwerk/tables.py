@@ -3,10 +3,12 @@ from copy import deepcopy
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSettings, Qt, Signal
 from PySide6.QtGui import QKeySequence, QUndoCommand
-from PySide6.QtWidgets import (QAbstractItemDelegate, QApplication, QComboBox, QDialog,
-                               QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-                               QMenu, QTableView, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemDelegate, QApplication, QCheckBox, QComboBox, QDialog,
+                               QDialogButtonBox, QFormLayout, QHBoxLayout, QInputDialog, QLabel,
+                               QLineEdit, QMenu, QMessageBox, QTableView, QToolButton, QVBoxLayout,
+                               QWidget)
 
+from .formula import FUNCS, ROW, FormulaError, error_column, number, parse, prefix_factor, recompute, row_value
 from .model import ROLES, Column, Table
 from .paste import parse, to_float
 
@@ -66,7 +68,8 @@ class TableModel(QAbstractTableModel):
         return None
 
     def flags(self, i):
-        return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable
+        f = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        return f if self.table.columns[i.column()].formula else f | Qt.ItemIsEditable
 
     def headerData(self, s, orient, role=Qt.DisplayRole):
         if role != Qt.DisplayRole:
@@ -74,13 +77,20 @@ class TableModel(QAbstractTableModel):
         if orient == Qt.Vertical:
             return str(s + 1)
         c = self.table.columns[s]
-        return f"{c.name} / {c.unit}\n{c.role}" if c.unit else f"{c.name}\n{c.role}"
+        role = f"{c.role}  = {c.formula}" if c.formula else c.role
+        return f"{c.name} / {c.unit}\n{role}" if c.unit else f"{c.name}\n{role}"
 
     def setData(self, i, value, role=Qt.EditRole):
         if role != Qt.EditRole:
             return False
         text = str(value).strip()
-        v = to_float(text) if text else None
+        if text.startswith("="):  # Zellformel: einmal ausrechnen, Zahl speichern
+            try:
+                v = row_value(text[1:], self.table.columns, i.row())
+            except FormulaError:
+                return False
+        else:
+            v = to_float(text) if text else None
         if text and v is None:
             return False  # keine Zahl → Eingabe verwerfen
         if v != self._value(i):
@@ -91,6 +101,7 @@ class TableModel(QAbstractTableModel):
     def edit(self, fn, text: str) -> None:
         cols = deepcopy(self.table.columns)
         fn(cols)
+        recompute(cols)
         _tidy(cols)
         if cols != self.table.columns:
             self.stack.push(TableCmd(self, deepcopy(self.table.columns), cols, text))
@@ -152,6 +163,27 @@ class TableModel(QAbstractTableModel):
             cols[j].name, cols[j].unit, cols[j].role = name, unit, role
         self.edit(fn, "Spalte bearbeiten")
 
+    def set_formula(self, j: int, formula: str, gauss: bool) -> None:
+        """Leere Formel → Spalte wird wieder normale Datenspalte, Werte bleiben stehen."""
+        def fn(cols):
+            cols[j].formula, cols[j].gauss = formula, gauss and bool(formula)
+        self.edit(fn, "Spaltenwerte setzen")
+
+    def scale(self, j: int, k: float, unit: str | None = None) -> None:
+        """Spalte (und ihr Δ) × k; bei Formelspalten wird die Formel erweitert."""
+        def fn(cols):
+            c = cols[j]
+            e = error_column(cols, c.name)
+            for col in (c, e) if e and not c.formula else (c,):
+                col.values = [None if v is None else v * k for v in col.values]
+                if unit is not None and col is not c and col.unit == c.unit:
+                    col.unit = unit
+            if c.formula:
+                c.formula = f"({c.formula})*{k!r}"
+            if unit is not None:
+                c.unit = unit
+        self.edit(fn, "Einheit umrechnen" if unit is not None else "Spalte × Faktor")
+
     def add_y(self) -> None:
         self.edit(lambda cols: cols.append(Column(f"y{len(cols)}")), "Y-Spalte hinzufügen")
 
@@ -176,6 +208,39 @@ class ColumnDialog(QDialog):
         b.accepted.connect(self.accept)
         b.rejected.connect(self.reject)
         f.addRow(b)
+
+
+class FormulaDialog(QDialog):
+    """Spaltenwerte setzen: Formel aus Spaltennamen (Text, LaTeX oder $…$), optional Gauß-Fehler."""
+
+    def __init__(self, cols: list[Column], j: int, parent=None):
+        super().__init__(parent)
+        c = cols[j]
+        self.names = [k.name for k in cols]
+        self.setWindowTitle(f"Spaltenwerte setzen – {c.name}")
+        f = QFormLayout(self)
+        self.text = QLineEdit(c.formula, placeholderText="z.B. U*I, \\frac{U}{I}, $U^2$")
+        self.gauss = QCheckBox(f"Gauß-Fehler nach Δ{c.name} schreiben", checked=c.gauss or not c.formula)
+        self.msg = QLabel(wordWrap=True)
+        refs = ", ".join(n for n in self.names if n.isidentifier() and n != c.name)
+        f.addRow("Formel", self.text)
+        f.addRow(self.gauss)
+        f.addRow(QLabel(f"Spalten: {refs or '–'} · Zeile: {ROW} · {', '.join(FUNCS)}, pi, e\n"
+                        "Leer lassen = Formel entfernen, Werte bleiben.", wordWrap=True))
+        f.addRow(self.msg)
+        b = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        b.accepted.connect(self.check)
+        b.rejected.connect(self.reject)
+        f.addRow(b)
+
+    def check(self):
+        try:
+            if self.text.text().strip():
+                parse(self.text.text(), self.names)
+        except FormulaError as e:
+            self.msg.setText(str(e))
+            return
+        self.accept()
 
 
 class TableView(QTableView):
@@ -253,10 +318,41 @@ class TableView(QTableView):
         if d.exec():
             self.model().set_column(j, d.name.text().strip(), d.unit.text().strip(), d.role.currentText())
 
+    def set_values(self, j: int):
+        if j < 0:
+            return
+        d = FormulaDialog(self.model().table.columns, j, self)
+        if d.exec():
+            self.model().set_formula(j, d.text.text().strip(), d.gauss.isChecked())
+
+    def multiply(self, j: int):
+        text, ok = QInputDialog.getText(self, "Spalte × Faktor", "Faktor (z.B. 2, 1e-3, 1/3, pi):")
+        if not ok or not text.strip():
+            return
+        try:
+            self.model().scale(j, number(text))
+        except FormulaError as e:
+            QMessageBox.warning(self, "Spalte × Faktor", str(e))
+
+    def convert_unit(self, j: int):
+        old = self.model().table.columns[j].unit
+        new, ok = QInputDialog.getText(self, "Einheit umrechnen", f"Neue Einheit (statt {old or '–'}):", text=old)
+        if not ok or new.strip() == old:
+            return
+        k = prefix_factor(old, new.strip())
+        if k is None:
+            QMessageBox.warning(self, "Einheit umrechnen",
+                                f"{old or '–'} → {new.strip()}: nur SI-Präfixe derselben Einheit (mV → V, cm² → m²).")
+            return
+        self.model().scale(j, k, new.strip())
+
     def header_menu(self, j: int):
         m = QMenu(self)
         if j >= 0:
             m.addAction("Spalte bearbeiten …", lambda: self.edit_column(j))
+            m.addAction("Spaltenwerte setzen …", lambda: self.set_values(j))
+            m.addAction("Spalte × Faktor …", lambda: self.multiply(j))
+            m.addAction("Einheit umrechnen …", lambda: self.convert_unit(j))
             m.addAction("Spalte löschen", lambda: self.model().remove_column(j))
         m.addAction("Y-Spalte hinzufügen", self.model().add_y)
         m.exec(self.cursor().pos())

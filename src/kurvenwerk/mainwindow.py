@@ -106,6 +106,8 @@ class MainWindow(QMainWindow):
                     lambda: (v := self.table_view()) and v.model().add_y())
         t.addAction("Spalte &bearbeiten …", QKeySequence("Ctrl+Shift+E"),
                     lambda: (v := self.table_view()) and v.edit_column(v.currentIndex().column()))
+        t.addAction("Spalten&werte setzen …", QKeySequence("Ctrl+Shift+F"),
+                    lambda: (v := self.table_view()) and v.set_values(v.currentIndex().column()))
         s = self.menuBar().addMenu("&Seite")
         s.addAction("&Hinzufügen", QKeySequence("Ctrl+T"), self.add_page)
         s.addAction("&Umbenennen …", QKeySequence("F2"), lambda: self.rename_page(self.tabs.currentIndex()))

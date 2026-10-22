@@ -3,7 +3,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-VERSION = 1
+VERSION = 2  # 2: Column.formula/gauss
 ROLES = ("X", "Y", "Δx", "Δy")
 
 
@@ -13,6 +13,8 @@ class Column:
     unit: str = ""
     role: str = "Y"
     values: list[float | None] = field(default_factory=list)  # None = leere Zelle
+    formula: str = ""  # berechnete Spalte, siehe formula.recompute
+    gauss: bool = False  # Gauß-Fehler der Formel nach Δ<name>
 
     def __post_init__(self):
         if self.role not in ROLES:
