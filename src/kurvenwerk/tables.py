@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QAbstractItemDelegate, QApplication, QCheckBox, Q
 from .formula import FUNCS, ROW, FormulaError, error_column, number, parse, prefix_factor, recompute, row_value
 from .model import ROLES, Column, Table
 from .paste import parse, to_float
+from .plotview import series_style
 
 MIN_ROWS = 20
 
@@ -184,6 +185,11 @@ class TableModel(QAbstractTableModel):
                 c.unit = unit
         self.edit(fn, "Einheit umrechnen" if unit is not None else "Spalte × Faktor")
 
+    def set_style(self, j: int, style: dict) -> None:
+        def fn(cols):
+            cols[j].style = style
+        self.edit(fn, "Reihen-Stil")
+
     def add_y(self) -> None:
         self.edit(lambda cols: cols.append(Column(f"y{len(cols)}")), "Y-Spalte hinzufügen")
 
@@ -346,6 +352,11 @@ class TableView(QTableView):
             return
         self.model().scale(j, k, new.strip())
 
+    def series_style(self, j: int):
+        v = series_style(self.model().table.columns[j].style, self)
+        if v is not None:
+            self.model().set_style(j, v)
+
     def header_menu(self, j: int):
         m = QMenu(self)
         if j >= 0:
@@ -353,6 +364,8 @@ class TableView(QTableView):
             m.addAction("Spaltenwerte setzen …", lambda: self.set_values(j))
             m.addAction("Spalte × Faktor …", lambda: self.multiply(j))
             m.addAction("Einheit umrechnen …", lambda: self.convert_unit(j))
+            if self.model().table.columns[j].role == "Y":
+                m.addAction("Reihen-Stil …", lambda: self.series_style(j))
             m.addAction("Spalte löschen", lambda: self.model().remove_column(j))
         m.addAction("Y-Spalte hinzufügen", self.model().add_y)
         m.exec(self.cursor().pos())

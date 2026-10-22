@@ -3,7 +3,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-VERSION = 2  # 2: Column.formula/gauss
+VERSION = 3  # 2: Column.formula/gauss, 3: Column.style, Page.plot, Project.style
 ROLES = ("X", "Y", "Δx", "Δy")
 
 
@@ -15,6 +15,7 @@ class Column:
     values: list[float | None] = field(default_factory=list)  # None = leere Zelle
     formula: str = ""  # berechnete Spalte, siehe formula.recompute
     gauss: bool = False  # Gauß-Fehler der Formel nach Δ<name>
+    style: dict = field(default_factory=dict)  # Reihen-Stil, Schlüssel siehe plot.SERIES
 
     def __post_init__(self):
         if self.role not in ROLES:
@@ -32,11 +33,13 @@ class Page:
     title: str = "Seite 1"
     tables: list[Table] = field(default_factory=lambda: [Table()])
     show_plot: bool = True
+    plot: dict = field(default_factory=dict)  # Achsen/Beschriftung, Schlüssel siehe plot.PLOT
 
 
 @dataclass
 class Project:
     pages: list[Page] = field(default_factory=lambda: [Page()])
+    style: dict = field(default_factory=dict)  # projektweiter Plot-Stil, Schlüssel siehe plot.STYLE
 
     def to_dict(self) -> dict:
         return {"version": VERSION, **asdict(self)}
@@ -49,9 +52,9 @@ class Project:
         return cls([
             Page(p["title"], [
                 Table(t["name"], [Column(**c) for c in t["columns"]]) for t in p["tables"]
-            ], p.get("show_plot", True))
+            ], p.get("show_plot", True), p.get("plot", {}))
             for p in d["pages"]
-        ])
+        ], d.get("style", {}))
 
     def save(self, path: str | Path) -> None:
         Path(path).write_text(json.dumps(self.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")

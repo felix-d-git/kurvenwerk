@@ -1,21 +1,20 @@
 """Hauptfenster: Seiten-Tabs, je Seite Splitter Tabellen | Plot, Menüs, ein Undo-Stack pro Projekt."""
 from pathlib import Path
 
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QActionGroup, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QInputDialog, QMainWindow,
                                QMessageBox, QSplitter, QTabWidget, QToolButton, QWidget)
 
 from .model import Page, Project, Table
+from .plotview import AttrCmd, PlotPanel, edit_style
 from .tables import AddTableCmd, TableTile, TableView, paste_decimal, settings
 
 FILTER = "Kurvenwerk-Projekt (*.kwproj);;JSON (*.json)"
 
 
 class PageView(QSplitter):
-    def __init__(self, page: Page, stack: QUndoStack):
+    def __init__(self, page: Page, project: Project, stack: QUndoStack):
         super().__init__(Qt.Horizontal)
         self.setObjectName("page")
         self.page, self.stack = page, stack
@@ -26,24 +25,38 @@ class PageView(QSplitter):
         add.clicked.connect(self.add_table)
         self.row.addWidget(add, 0, Qt.AlignTop)
         self.tiles: list[TableTile] = []
+        self.plot = PlotPanel(page, project, stack)
         for t in page.tables:
             self.insert_tile(TableTile(t, stack))
         self.addWidget(tables)
-        self.canvas = FigureCanvasQTAgg(Figure(layout="constrained"))
-        self.canvas.figure.add_subplot()
-        self.addWidget(self.canvas)
-        self.canvas.setVisible(page.show_plot)
+        self.addWidget(self.plot)
+        self.plot.setVisible(page.show_plot)
         self.setSizes([1, 1])
+
+    def _signals(self, tile: TableTile):
+        m = tile.model
+        return m.dataChanged, m.modelReset, m.headerDataChanged
+
+    def toggle_plot(self):
+        def after():
+            self.plot.setVisible(self.page.show_plot)
+        self.stack.push(AttrCmd(self.page, "show_plot", not self.page.show_plot, "Plot ein/aus", after))
 
     def insert_tile(self, tile: TableTile):
         self.row.insertWidget(len(self.tiles), tile, 1)
         self.tiles.append(tile)
         tile.view.tile.connect(lambda d, r, c, t=tile: self.jump(t, d, r, c))
+        for sig in self._signals(tile):
+            sig.connect(self.plot.schedule)
         tile.show()
+        self.plot.schedule()
 
     def remove_tile(self, tile: TableTile):
         self.tiles.remove(tile)
         tile.view.tile.disconnect()
+        for sig in self._signals(tile):
+            sig.disconnect(self.plot.schedule)
+        self.plot.schedule()
         self.row.removeWidget(tile)
         tile.setParent(None)  # Objekt lebt im AddTableCmd weiter
 
@@ -108,12 +121,24 @@ class MainWindow(QMainWindow):
                     lambda: (v := self.table_view()) and v.edit_column(v.currentIndex().column()))
         t.addAction("Spalten&werte setzen …", QKeySequence("Ctrl+Shift+F"),
                     lambda: (v := self.table_view()) and v.set_values(v.currentIndex().column()))
+        g = self.menuBar().addMenu("&Plot")
+        g.addAction("Plot &anzeigen/ausblenden", QKeySequence("Ctrl+Shift+P"), lambda: self.page_view().toggle_plot())
+        g.addAction("Achsen &tauschen x↔y", QKeySequence("Ctrl+Shift+X"), lambda: self.page_view().plot.swap())
+        g.addAction("A&chsen && Beschriftung …", QKeySequence("Ctrl+Shift+A"),
+                    lambda: self.page_view().plot.edit_axes())
+        g.addAction("&Exportieren …", QKeySequence("Ctrl+E"), lambda: self.page_view().plot.export())
+        g.addSeparator()
+        g.addAction("Plot-&Stil (Projekt) …", lambda: edit_style(self.project, self.stack, self, self.redraw_all))
         s = self.menuBar().addMenu("&Seite")
         s.addAction("&Hinzufügen", QKeySequence("Ctrl+T"), self.add_page)
         s.addAction("&Umbenennen …", QKeySequence("F2"), lambda: self.rename_page(self.tabs.currentIndex()))
         s.addAction("&Löschen", QKeySequence("Ctrl+W"), lambda: self.delete_page(self.tabs.currentIndex()))
 
         self.set_project(Project(), None)
+
+    def redraw_all(self):
+        for i in range(self.tabs.count()):
+            self.tabs.widget(i).plot.redraw()
 
     def page_view(self) -> PageView:
         return self.tabs.currentWidget()
@@ -137,7 +162,7 @@ class MainWindow(QMainWindow):
             self.tabs.removeTab(0)
             w.deleteLater()
         for p in project.pages:
-            self.tabs.addTab(PageView(p, self.stack), p.title)
+            self.tabs.addTab(PageView(p, self.project, self.stack), p.title)
         self.dirty = False
         self._update_title()
 
@@ -198,7 +223,7 @@ class MainWindow(QMainWindow):
     def add_page(self):
         p = Page(f"Seite {len(self.project.pages) + 1}")
         self.project.pages.append(p)
-        self.tabs.setCurrentIndex(self.tabs.addTab(PageView(p, self.stack), p.title))
+        self.tabs.setCurrentIndex(self.tabs.addTab(PageView(p, self.project, self.stack), p.title))
         self._changed()
 
     def rename_page(self, i: int):

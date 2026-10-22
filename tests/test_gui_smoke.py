@@ -35,3 +35,26 @@ def test_pages_sync(tmp_path, monkeypatch):
     w.path = tmp_path / "p.kwproj"
     assert w.save() and not w.dirty
     assert Project.load(w.path) == w.project
+
+
+def test_plot_live_update_and_undo():
+    w = MainWindow()
+    pv = w.page_view()
+    m = pv.tiles[0].model
+    m.set_cells({(0, 0): 1.0, (0, 1): 2.0, (1, 0): 2.0, (1, 1): 5.0}, "Werte")
+    app.processEvents()  # Timer bündelt die Signale → ein Neuzeichnen
+    ax = pv.plot.canvas.figure.axes[0]
+    assert list(ax.lines[0].get_ydata()) == [2.0, 5.0] and ax.get_xlabel() == "x"
+    pv.plot.swap()
+    assert pv.page.plot == {"swap": True} and pv.plot.canvas.figure.axes[0].get_xlabel() == "y"
+    m.set_style(1, {"axis": "y2"})
+    app.processEvents()
+    assert len(pv.plot.canvas.figure.axes) == 2
+    pv.toggle_plot()
+    assert not pv.page.show_plot and pv.plot.isHidden()
+    w.stack.undo()
+    w.stack.undo()
+    w.stack.undo()
+    app.processEvents()
+    assert pv.page.show_plot and pv.page.plot == {} and m.table.columns[1].style == {}
+    assert pv.plot.canvas.figure.axes[0].get_xlabel() == "x"

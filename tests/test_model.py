@@ -8,10 +8,11 @@ from kurvenwerk.model import VERSION, Column, Page, Project, Table
 def sample() -> Project:
     t = Table("Kennlinie", [
         Column("U", "mV", "X", [0.0, 1.5, None, 3.25]),
-        Column("I", "µA", "Y", [0.1, 2.0, 2.9, 4.0]),
+        Column("I", "µA", "Y", [0.1, 2.0, 2.9, 4.0], style={"color": "#ff0000", "axis": "y2"}),
         Column("ΔI", "µA", "Δy", [0.05, 0.05, 0.05, 0.05]),
     ])
-    return Project([Page("Aufgabe 1", [t, Table()]), Page("Aufgabe 2", [], show_plot=False)])
+    return Project([Page("Aufgabe 1", [t, Table()], plot={"title": "$I(U)$", "xlog": True}),
+                    Page("Aufgabe 2", [], show_plot=False)], style={"marker": "s"})
 
 
 def test_roundtrip(tmp_path):
