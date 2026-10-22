@@ -23,3 +23,5 @@ py -3.12 -m venv .venv
 
 MIT, siehe [LICENSE](LICENSE). Verwendete Bibliotheken behalten ihre eigenen Lizenzen
 (u.a. PySide6/Qt: LGPL-3.0, Matplotlib, NumPy, SciPy, SymPy: BSD-artig).
+Gebündelte Schriften Manrope und IBM Plex Mono: SIL Open Font License 1.1,
+siehe `src/kurvenwerk/style/fonts/OFL-*.txt`.
