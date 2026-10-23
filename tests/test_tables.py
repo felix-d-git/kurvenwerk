@@ -148,6 +148,9 @@ def test_rows_grow_with_data_and_enter_in_last_row():
     assert m.rowCount() == 3
     m.paste("1\n2\n3\n4\n5", 2, 1, "auto")
     assert m.rowCount() == 8
+    m2 = window()[2].model()
+    m2.paste("1\n2\n3\n4\n5", 0, 0, "auto")
+    assert m2.rowCount() == 6  # 5 Werte + eine leere Eingabezeile
 
 
 def test_remove_table_undo_keeps_order():
