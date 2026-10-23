@@ -87,7 +87,8 @@ AXES_SPEC = [("title", "Titel", "math"), ("xlabel", "x-Achse", "math"), ("ylabel
              ("ymax", "y max", "num"), ("y2min", "2. y min", "num"), ("y2max", "2. y max", "num"),
              ("xlog", "x logarithmisch", "bool"), ("ylog", "y logarithmisch", "bool"),
              ("y2log", "2. y logarithmisch", "bool"), ("legend", "Legende", "bool"),
-             ("swap", "Achsen tauschen x↔y", "bool"), ("residuals", "Residuenplot (bei Fit)", "bool")]
+             ("swap", "Achsen tauschen x↔y", "bool"), ("residuals", "Residuenplot (bei Fit)", "bool"),
+             ("page_title", "Seitentitel über dem Plot", "bool")]
 STYLE_SPEC = [("marker", "Marker", plot.MARKERS), ("markersize", "Markergröße", "num"),
               ("linestyle", "Linie", plot.LINESTYLES), ("linewidth", "Linienbreite", "num"),
               ("capsize", "Fehlerbalken-Kappe", "num"), ("fit_alpha", "Fit-Deckkraft (0–1)", "num"), ("colors", "Farbfolge", "colors"),

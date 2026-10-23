@@ -34,3 +34,14 @@ def test_rejects_newer_version():
 def test_rejects_unknown_role():
     with pytest.raises(ValueError):
         Column("x", "", "Z")
+
+
+def test_migrates_v4_without_description():
+    d = sample().to_dict()
+    d["version"] = 4
+    for p in d["pages"]:
+        del p["description"]
+    p = Project.from_dict(d)
+    assert p.pages[0].description == "" and p.pages[0].tables[0].name == "Kennlinie"
+    p.pages[1].description = "Messung bei 20 °C\nzweite Zeile"
+    assert Project.from_dict(p.to_dict()).pages[1].description == p.pages[1].description

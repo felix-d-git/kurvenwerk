@@ -1,10 +1,10 @@
 """Hauptfenster: Seiten-Tabs, je Seite Splitter Tabellen | Plot, Menüs, ein Undo-Stack pro Projekt."""
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QActionGroup, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QMainWindow,
-                               QMenu, QMessageBox, QSplitter, QTabWidget, QToolButton, QWidget)
+                               QMenu, QMessageBox, QPlainTextEdit, QSplitter, QTabWidget, QToolButton, QWidget)
 
 from . import export
 from .model import Page, Project, Table
@@ -16,6 +16,8 @@ FILTER = "Kurvenwerk-Projekt (*.kwproj);;JSON (*.json)"
 
 
 class PageView(QSplitter):
+    changed = Signal()  # Beschreibung geändert (nicht im Undo-Stack)
+
     def __init__(self, page: Page, project: Project, stack: QUndoStack):
         super().__init__(Qt.Horizontal)
         self.setObjectName("page")
@@ -31,10 +33,20 @@ class PageView(QSplitter):
         self.plot.set_fit = self.set_fit
         for t in page.tables:
             self.insert_tile(TableTile(t, stack))
-        self.addWidget(tables)
+        self.description = QPlainTextEdit(page.description, placeholderText="Beschreibung der Seite (Freitext)")
+        self.description.textChanged.connect(self._description)
+        left = QSplitter(Qt.Vertical)
+        left.addWidget(tables)
+        left.addWidget(self.description)
+        left.setSizes([4, 1])
+        self.addWidget(left)
         self.addWidget(self.plot)
         self.plot.setVisible(page.show_plot)
         self.setSizes([1, 1])
+
+    def _description(self):
+        self.page.description = self.description.toPlainText()
+        self.changed.emit()
 
     def set_fit(self, col, fit: dict):
         """Fit der Spalte (Objekt aus dem Plot) über das Modell ihrer Tabelle → Undo."""
@@ -264,9 +276,14 @@ class MainWindow(QMainWindow):
             self.tabs.removeTab(0)
             w.deleteLater()
         for p in project.pages:
-            self.tabs.addTab(PageView(p, self.project, self.stack), p.title)
+            self.tabs.addTab(self._page_view(p), p.title)
         self.dirty = False
         self._update_title()
+
+    def _page_view(self, p: Page) -> PageView:
+        pv = PageView(p, self.project, self.stack)
+        pv.changed.connect(self._changed)
+        return pv
 
     def _changed(self):
         self.dirty = True
@@ -325,7 +342,7 @@ class MainWindow(QMainWindow):
     def add_page(self):
         p = Page(f"Seite {len(self.project.pages) + 1}")
         self.project.pages.append(p)
-        self.tabs.setCurrentIndex(self.tabs.addTab(PageView(p, self.project, self.stack), p.title))
+        self.tabs.setCurrentIndex(self.tabs.addTab(self._page_view(p), p.title))
         self._changed()
 
     def rename_page(self, i: int):
@@ -336,6 +353,7 @@ class MainWindow(QMainWindow):
         if ok and title.strip() and title.strip() != p.title:
             p.title = title.strip()
             self.tabs.setTabText(i, p.title)
+            self.tabs.widget(i).plot.redraw()  # Seitentitel über dem Plot
             self._changed()
 
     def delete_page(self, i: int):

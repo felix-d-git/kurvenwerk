@@ -3,7 +3,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-VERSION = 4  # 2: Column.formula/gauss, 3: Column.style, Page.plot, Project.style, 4: Column.fit
+VERSION = 5  # 2: Column.formula/gauss, 3: Column.style, Page.plot, Project.style, 4: Column.fit, 5: Page.description
 ROLES = ("X", "Y", "Δx", "Δy")
 
 
@@ -35,6 +35,7 @@ class Page:
     tables: list[Table] = field(default_factory=lambda: [Table()])
     show_plot: bool = True
     plot: dict = field(default_factory=dict)  # Achsen/Beschriftung, Schlüssel siehe plot.PLOT
+    description: str = ""  # Freitext zur Seite
 
 
 @dataclass
@@ -53,7 +54,7 @@ class Project:
         return cls([
             Page(p["title"], [
                 Table(t["name"], [Column(**c) for c in t["columns"]]) for t in p["tables"]
-            ], p.get("show_plot", True), p.get("plot", {}))
+            ], p.get("show_plot", True), p.get("plot", {}), p.get("description", ""))
             for p in d["pages"]
         ], d.get("style", {}))
 

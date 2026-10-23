@@ -185,3 +185,32 @@ def test_remove_x_and_gauss_error_column():
     w.stack.undo()
     w.stack.undo()
     assert [c.name for c in m.table.columns] == ["U", "I", "ΔU", "y3", "Δy3"]
+
+
+def test_swap_columns_moves_errors_roles_stay():
+    w = MainWindow()
+    m = w.page_view().tiles[0].model
+    m.paste("U\tΔU\tI\tΔI\tP\n1\t0,1\t2\t0,2\t3", 0, 0, "auto")
+    m.set_column(1, "ΔU", "", "Δx")  # bestehende 2. Spalte bekommt beim Paste keine Δ-Rolle
+    m.set_column(2, "I", "", "Y")
+    cols = lambda: [(c.name, c.role) for c in m.table.columns]  # noqa: E731
+    assert cols() == [("U", "X"), ("ΔU", "Δx"), ("I", "Y"), ("ΔI", "Δy"), ("P", "Y")]
+    m.swap_columns(0, 2)  # I wird X, U wird Y; Fehler wandern mit
+    assert cols() == [("I", "X"), ("ΔI", "Δx"), ("U", "Y"), ("ΔU", "Δy"), ("P", "Y")]
+    assert m.table.columns[1].values == [0.2]
+    m.swap_columns(2, 4)
+    assert cols() == [("I", "X"), ("ΔI", "Δx"), ("P", "Y"), ("U", "Y"), ("ΔU", "Δy")]
+    m.swap_columns(0, 1)  # Δ-Spalte: nichts
+    w.stack.undo()
+    w.stack.undo()
+    assert cols()[0] == ("U", "X")
+
+
+def test_table_title_rename_undo():
+    w = MainWindow()
+    tile = w.page_view().tiles[0]
+    tile.title.setText("Kennlinie")
+    tile.rename()
+    assert tile.model.table.name == "Kennlinie"
+    w.stack.undo()
+    assert tile.model.table.name == tile.title.text() != "Kennlinie"

@@ -21,7 +21,7 @@ STYLE = {"marker": "o", "markersize": 5.0, "linestyle": "none", "linewidth": 1.2
 # Achsen/Beschriftung pro Seite (Page.plot); None bei Grenzen = automatisch
 PLOT = {"title": "", "xlabel": "", "ylabel": "", "y2label": "", "xlog": False, "ylog": False,
         "y2log": False, "xmin": None, "xmax": None, "ymin": None, "ymax": None, "y2min": None,
-        "y2max": None, "legend": True, "swap": False, "residuals": False}
+        "y2max": None, "legend": True, "swap": False, "residuals": False, "page_title": True}
 # Überschreiben pro Reihe (Column.style); "" = Projektstil
 SERIES = {"label": "", "color": "", "marker": "", "markersize": None, "linestyle": "", "axis": "y",
           "errorbars": True, "fit_alpha": None}
@@ -38,6 +38,7 @@ class Series:
     xcol: Column
     ycol: Column
     rows: np.ndarray  # Tabellenzeile je Punkt (für Fit-Ausschluss)
+    table: str = ""
 
 
 def label_error(text: str) -> str | None:
@@ -76,13 +77,15 @@ def _error(cols: list[Column], j: int) -> Column | None:
 
 
 def series(table: Table) -> list[Series]:
-    """Je Y-Spalte eine Reihe gegen die erste X-Spalte; Zeilen ohne x oder y fallen weg."""
+    """Je Y-Spalte eine Reihe gegen die erste X-Spalte (ohne X: Index 1, 2, 3 …); Zeilen ohne x oder y fallen weg."""
     cols = table.columns
     xi = next((i for i, c in enumerate(cols) if c.role == "X"), None)
     if xi is None:
-        return []
-    xc, out = cols[xi], []
-    dxc = _error(cols, xi)
+        n = max((len(c.values) for c in cols if c.role == "Y"), default=0)
+        xc, dxc = Column("Index", "", "X", list(range(1, n + 1))), None
+    else:
+        xc, dxc = cols[xi], _error(cols, xi)
+    out = []
     for j, yc in enumerate(cols):
         if yc.role != "Y":
             continue
@@ -94,7 +97,7 @@ def series(table: Table) -> list[Series]:
         dyc = _error(cols, j)
         dx = np.abs(np.nan_to_num(_arr(dxc.values, n)[ok])) if dxc else None  # errorbar verbietet Δ < 0
         dy = np.abs(np.nan_to_num(_arr(dyc.values, n)[ok])) if dyc else None
-        out.append(Series(x[ok], y[ok], dx, dy, xc, yc, np.flatnonzero(ok)))
+        out.append(Series(x[ok], y[ok], dx, dy, xc, yc, np.flatnonzero(ok), table.name))
     return out
 
 
@@ -121,6 +124,13 @@ def fit_alpha(s: Series, st: dict) -> float:
     a = s.ycol.style.get("fit_alpha")
     a = st["fit_alpha"] if a is None else a
     return min(max(float(a), 0.0), 1.0) if a == a else 1.0  # NaN → deckend
+
+
+def legend_label(s: Series, o: dict, page: Page) -> str:
+    """Eigenes Label, sonst Spaltenkopf; bei mehreren Tabellen mit Tabellentitel."""
+    if o["label"]:
+        return safe(o["label"])
+    return safe(heading(s.ycol) + (f" ({s.table})" if len(page.tables) > 1 and s.table else ""))
 
 
 def _auto(names: list[str]) -> str:
@@ -169,7 +179,7 @@ def draw(fig: Figure, page: Page, style: dict) -> list[tuple]:
         out = np.isin(s.rows, s.ycol.fit.get("excluded", []))  # ausgeschlossen → hohl, ohne Balken
         cut = lambda v: None if v is None or not o["errorbars"] else v[~out]  # noqa: E731
         ms = o["markersize"] or st["markersize"]
-        a.errorbar(x[~out], y[~out], xerr=cut(dx), yerr=cut(dy), label=safe(o["label"] or heading(s.ycol)),
+        a.errorbar(x[~out], y[~out], xerr=cut(dx), yerr=cut(dy), label=legend_label(s, o, page),
                    color=color, marker=o["marker"] or st["marker"],
                    markersize=ms, linestyle="none" if ls == "none" else ls,
                    linewidth=st["linewidth"], capsize=st["capsize"], elinewidth=st["linewidth"] * 0.8)
@@ -207,6 +217,8 @@ def draw(fig: Figure, page: Page, style: dict) -> list[tuple]:
         rax.tick_params(labelsize=st["fontsize"] * 0.9)
     if pl["title"]:
         ax.set_title(safe(pl["title"]), fontdict=rc)
+    if pl["page_title"] and page.title:
+        fig.suptitle(safe(page.title), fontsize=st["fontsize"] * 1.2, family=st["font"])
     if pl["legend"] and all_s:
         handles = [h for a in (ax, ax2) if a for h in a.get_legend_handles_labels()[0]]
         ax.legend(handles=handles, prop=rc)

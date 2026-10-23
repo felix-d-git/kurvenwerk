@@ -138,7 +138,7 @@ def python_script(page: Page, style: dict) -> str:
         L += ["", f"# {plot.heading(s.ycol)} über {plot.heading(s.xcol)}", f"x, y = {_arr(x[~out])}, {_arr(y[~out])}"]
         L.append(f"dx = {_arr(dx[~out]) if dx is not None else None}")
         L.append(f"dy = {_arr(dy[~out]) if dy is not None else None}")
-        L.append(f"{a}.errorbar(x, y, xerr=dx, yerr=dy, label={plot.safe(o['label'] or plot.heading(s.ycol))!r}, "
+        L.append(f"{a}.errorbar(x, y, xerr=dx, yerr=dy, label={plot.legend_label(s, o, page)!r}, "
                  f"color={color!r}, marker={marker!r}, markersize={ms!r}, "
                  f"linestyle={'none' if ls == 'none' else ls!r}, linewidth={lw!r}, capsize={st['capsize']!r}, "
                  f"elinewidth={lw * 0.8!r})")
@@ -171,6 +171,8 @@ def python_script(page: Page, style: dict) -> str:
             L.append(f"{a}.set_{axis}lim({lo!r}, {hi!r})")
     if pl["title"]:
         L.append(f"ax.set_title({plot.safe(pl['title'])!r})")
+    if pl["page_title"] and page.title:
+        L.append(f"fig.suptitle({plot.safe(page.title)!r})")
     if pl["legend"] and all_s:
         L.append("ax.legend(handles=[h for a in fig.axes for h in a.get_legend_handles_labels()[0]])")
     L += ["", 'if __name__ == "__main__":', "    plt.show()", ""]

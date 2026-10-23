@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (QAbstractItemDelegate, QAbstractItemView, QApplic
 from .formula import FUNCS, ROW, FormulaError, error_column, number, parse, prefix_factor, recompute, row_value
 from .model import ROLES, Column, Table
 from .paste import parse, to_float
-from .plotview import series_style
+from .plot import _error, heading
+from .plotview import AttrCmd, series_style
 
 
 
@@ -206,6 +207,24 @@ class TableModel(QAbstractTableModel):
 
     def add_y(self) -> None:
         self.edit(lambda cols: cols.append(Column(f"y{len(cols)}")), "Y-Spalte hinzufügen")
+
+    def swap_columns(self, i: int, j: int) -> None:
+        """Inhalte zweier X/Y-Spalten tauschen; die Rolle bleibt am Platz, Fehlerspalten wandern mit."""
+        cols = self.table.columns
+        if i == j or not all(0 <= k < len(cols) and cols[k].role in ("X", "Y") for k in (i, j)):
+            return
+
+        def fn(cols):
+            a, b = cols[i], cols[j]
+            ea, eb = _error(cols, i), _error(cols, j)
+            a.role, b.role = b.role, a.role
+            cols[i], cols[j] = b, a
+            for owner, e in ((b, eb), (a, ea)):
+                if e is not None:
+                    del cols[next(k for k, c in enumerate(cols) if c is e)]  # Identität: Spalten können gleich sein
+                    cols.insert(next(k for k, c in enumerate(cols) if c is owner) + 1, e)
+                    e.role = "Δx" if owner.role == "X" else "Δy"
+        self.edit(fn, "Spalten tauschen")
 
     def remove_column(self, j: int) -> None:
         """Auch X; Δ einer Gauß-Formelspalte → deren Gauß aus, sonst legt recompute sie sofort neu an."""
@@ -430,6 +449,12 @@ class TableView(QTableView):
             if self.model().table.columns[j].role == "Y":
                 m.addAction("Reihen-Stil …", lambda: self.series_style(j))
                 m.addAction("Fit …", lambda: self.fit(j))
+            cols = self.model().table.columns
+            others = [k for k, c in enumerate(cols) if k != j and c.role in ("X", "Y")]
+            if cols[j].role in ("X", "Y") and others:
+                sw = m.addMenu("Tauschen mit …")
+                for k in others:
+                    sw.addAction(heading(cols[k]), lambda k=k: self.model().swap_columns(j, k))
             m.addAction("Spalte löschen", lambda: self.model().remove_column(j))
         m.addAction("Y-Spalte hinzufügen", self.model().add_y)
         m.exec(self.cursor().pos())
@@ -445,8 +470,9 @@ class TableTile(QWidget):
         self.model = TableModel(table, stack)
         self.view = TableView(self.model)
         top = QHBoxLayout()
-        top.addWidget(QLabel(table.name))
-        top.addStretch()
+        self.title = QLineEdit(table.name, toolTip="Tabellentitel (Legende, Export)", frame=False)
+        self.title.editingFinished.connect(self.rename)
+        top.addWidget(self.title, 1)
         add = QToolButton(text="+ Y", toolTip="Y-Spalte hinzufügen")
         add.clicked.connect(self.model.add_y)
         top.addWidget(add)
@@ -457,6 +483,17 @@ class TableTile(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addLayout(top)
         lay.addWidget(self.view)
+
+    def rename(self):
+        t, name = self.model.table, self.title.text().strip()
+        if not name or name == t.name:
+            self.title.setText(t.name)
+            return
+
+        def after():
+            self.title.setText(t.name)
+            self.model.headerDataChanged.emit(Qt.Horizontal, 0, max(self.model.columnCount() - 1, 0))  # → Replot
+        self.model.stack.push(AttrCmd(t, "name", name, "Tabellentitel", after))
 
 
 class AddTableCmd(QUndoCommand):

@@ -28,7 +28,7 @@ def test_series_pairs_errors_and_drops_gaps():
     np.testing.assert_array_equal(s[0].dy, [1, 2, 0])  # fehlender Fehler → 0, negativer → Betrag
     np.testing.assert_array_equal(s[1].y, [10, 40])
     assert s[1].dy is None
-    assert series(Table("leer", [Column("y", "", "Y", [1.0])])) == []
+    assert series(Table("leer", [Column("y", "", "Y", [])])) == []
 
 
 def test_draw_axes_labels_y2():
@@ -117,3 +117,23 @@ def test_fit_error_shown_not_raised():
     fig = Figure()
     draw(fig, fit_page(formula="a*ln(x - 10)"), {})
     assert len(fig.axes) == 1 and "Fit y" in fig.axes[0].texts[0].get_text()
+
+
+def test_index_x_without_x_column():
+    s, = series(Table("T", [Column("y", "", "Y", [5.0, None, 7.0]), Column("Δy", "", "Δy", [0.1, 0.1, 0.1])]))
+    np.testing.assert_array_equal(s.x, [1, 3])
+    assert s.xcol.name == "Index" and s.dx is None and list(s.rows) == [0, 2]
+
+
+def test_page_title_and_table_in_legend():
+    p = page()
+    fig = Figure()
+    draw(fig, p, {})
+    assert fig._suptitle.get_text() == "S"
+    assert [t.get_text() for t in fig.axes[0].get_legend().get_texts()] == ["I / mA", "$P$"]  # eine Tabelle: ohne Titel
+    p.tables.append(Table("B", [Column("x", "", "X", [1.0]), Column("y", "", "Y", [2.0])]))
+    p.plot["page_title"] = False
+    fig = Figure()
+    draw(fig, p, {})
+    assert fig._suptitle is None
+    assert [t.get_text() for t in fig.axes[0].get_legend().get_texts()] == ["I / mA (T)", "y (B)", "$P$"]  # y2 zuletzt
