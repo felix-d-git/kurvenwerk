@@ -10,7 +10,7 @@ from . import export
 from .model import Page, Project, Table
 from .plotview import AttrCmd, PlotPanel, edit_style
 from .stats import summary
-from .tables import AddTableCmd, TableTile, TableView, paste_decimal, result_opts, settings
+from .tables import AddTableCmd, RemoveTableCmd, TableTile, TableView, paste_decimal, result_opts, settings
 
 FILTER = "Kurvenwerk-Projekt (*.kwproj);;JSON (*.json)"
 
@@ -53,18 +53,25 @@ class PageView(QSplitter):
             self.plot.setVisible(self.page.show_plot)
         self.stack.push(AttrCmd(self.page, "show_plot", not self.page.show_plot, "Plot ein/aus", after))
 
-    def insert_tile(self, tile: TableTile):
-        self.row.insertWidget(len(self.tiles), tile, 1)
-        self.tiles.append(tile)
+    def insert_tile(self, tile: TableTile, i: int | None = None):
+        """Kachel (und ihre Tabelle in page.tables) an Stelle i, sonst ans Ende."""
+        i = len(self.tiles) if i is None else i
+        self.row.insertWidget(i, tile, 1)
+        self.tiles.insert(i, tile)
+        if not any(t is tile.model.table for t in self.page.tables):
+            self.page.tables.insert(i, tile.model.table)
         tile.view.tile.connect(lambda d, r, c, t=tile: self.jump(t, d, r, c))
+        tile.remove.connect(lambda t=tile: self.remove_table(t))
         for sig in self._signals(tile):
             sig.connect(self.plot.schedule)
         tile.show()
         self.plot.schedule()
 
     def remove_tile(self, tile: TableTile):
-        self.tiles.remove(tile)
+        i = self.tiles.index(tile)
+        del self.tiles[i], self.page.tables[i]
         tile.view.tile.disconnect()
+        tile.remove.disconnect()
         for sig in self._signals(tile):
             sig.disconnect(self.plot.schedule)
         self.plot.schedule()
@@ -74,6 +81,9 @@ class PageView(QSplitter):
     def add_table(self):
         self.stack.push(AddTableCmd(self, Table(f"Tabelle {len(self.page.tables) + 1}")))
         self.tiles[-1].view.setFocus()
+
+    def remove_table(self, tile: TableTile):
+        self.stack.push(RemoveTableCmd(self, tile))
 
     def jump(self, tile: TableTile, d: int, r: int, c: int):
         i = self.tiles.index(tile) + d
@@ -140,10 +150,14 @@ class MainWindow(QMainWindow):
         e.addMenu(self.copy_menu())
         t = self.menuBar().addMenu("&Tabelle")
         t.addAction("&Neue Tabelle", QKeySequence("Ctrl+Shift+T"), lambda: self.page_view().add_table())
+        t.addAction("Tabelle &löschen", lambda: (v := self.table_view()) and self.page_view().remove_table(
+            next(t for t in self.page_view().tiles if t.view is v)))
         t.addAction("&Y-Spalte hinzufügen", QKeySequence("Ctrl+Shift+Y"),
                     lambda: (v := self.table_view()) and v.model().add_y())
         t.addAction("Spalte &bearbeiten …", QKeySequence("Ctrl+Shift+E"),
                     lambda: (v := self.table_view()) and v.edit_column(v.currentIndex().column()))
+        t.addAction("Spalte lö&schen", lambda: (v := self.table_view()) and v.model().remove_column(
+            v.currentIndex().column()))
         t.addAction("Spalten&werte setzen …", QKeySequence("Ctrl+Shift+F"),
                     lambda: (v := self.table_view()) and v.set_values(v.currentIndex().column()))
         t.addAction("E&xportieren (CSV/xlsx/LaTeX) …", self.export_table)

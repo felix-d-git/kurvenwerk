@@ -3,7 +3,7 @@ from copy import deepcopy
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSettings, Qt, Signal
 from PySide6.QtGui import QKeySequence, QUndoCommand
-from PySide6.QtWidgets import (QAbstractItemDelegate, QApplication, QCheckBox, QComboBox, QDialog,
+from PySide6.QtWidgets import (QAbstractItemDelegate, QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
                                QDialogButtonBox, QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QMenu, QMessageBox, QTableView, QToolButton, QVBoxLayout,
                                QWidget)
@@ -13,7 +13,6 @@ from .model import ROLES, Column, Table
 from .paste import parse, to_float
 from .plotview import series_style
 
-MIN_ROWS = 20
 
 
 def settings() -> QSettings:
@@ -29,6 +28,11 @@ def result_opts() -> dict:
     """Ausgabe von Ergebnissen: DIN-Rundung, Unsicherheit relativ in %."""
     s = settings()
     return {"rounded": s.value("results/din", True, type=bool), "pct": s.value("results/pct", False, type=bool)}
+
+
+def _rows(cols: list[Column]) -> int:
+    """Genutzte Zeilen + 1 leere zum Weitertippen."""
+    return max((len(c.values) for c in cols), default=0) + 1
 
 
 def _tidy(cols: list[Column]) -> None:
@@ -56,8 +60,7 @@ class TableModel(QAbstractTableModel):
         self.table, self.stack = table, stack
 
     def rowCount(self, parent=QModelIndex()):
-        return 0 if parent.isValid() else max(max((len(c.values) for c in self.table.columns), default=0) + 1,
-                                               MIN_ROWS)
+        return 0 if parent.isValid() else _rows(self.table.columns)
 
     def columnCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else len(self.table.columns)
@@ -128,7 +131,7 @@ class TableModel(QAbstractTableModel):
             self.table.columns = deepcopy(cols)
             self.endResetModel()
             return
-        new_rows = max(max((len(c.values) for c in cols), default=0) + 1, MIN_ROWS)
+        new_rows = _rows(cols)
         if new_rows > rows:
             self.beginInsertRows(QModelIndex(), rows, new_rows - 1)
         elif new_rows < rows:
@@ -205,8 +208,16 @@ class TableModel(QAbstractTableModel):
         self.edit(lambda cols: cols.append(Column(f"y{len(cols)}")), "Y-Spalte hinzufügen")
 
     def remove_column(self, j: int) -> None:
-        if self.columnCount() > 1:
-            self.edit(lambda cols: cols.pop(j), "Spalte löschen")
+        """Auch X; Δ einer Gauß-Formelspalte → deren Gauß aus, sonst legt recompute sie sofort neu an."""
+        if not 0 <= j < self.columnCount() or self.columnCount() == 1:
+            return
+
+        def fn(cols):
+            c = cols.pop(j)
+            for k in cols:
+                if k.gauss and c.name == "Δ" + k.name:
+                    k.gauss = False
+        self.edit(fn, "Spalte löschen")
 
 
 class ColumnDialog(QDialog):
@@ -288,6 +299,8 @@ class TableView(QTableView):
                 self.tile.emit(-1 if shift else 1, r, -1 if shift else 0)
                 return
         else:  # Enter
+            if self.state() == QAbstractItemView.EditingState and (ed := QApplication.focusWidget()) is not self:
+                self.commitData(ed)  # erst übernehmen → neue leere Zeile existiert schon
             r = max(0, min(r + (-1 if shift else 1), self.model().rowCount() - 1))
             c, self.origin = (c if self.origin is None else self.origin), None
         self.setCurrentIndex(self.model().index(r, c))
@@ -423,7 +436,8 @@ class TableView(QTableView):
 
 
 class TableTile(QWidget):
-    """Kachel: Titelzeile (Name, + Y) über der Tabelle."""
+    """Kachel: Titelzeile (Name, + Y, ✕) über der Tabelle."""
+    remove = Signal()
 
     def __init__(self, table: Table, stack):
         super().__init__()
@@ -436,6 +450,9 @@ class TableTile(QWidget):
         add = QToolButton(text="+ Y", toolTip="Y-Spalte hinzufügen")
         add.clicked.connect(self.model.add_y)
         top.addWidget(add)
+        rm = QToolButton(text="✕", toolTip="Tabelle löschen (Strg+Z holt sie zurück)")
+        rm.clicked.connect(self.remove)
+        top.addWidget(rm)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addLayout(top)
@@ -450,9 +467,21 @@ class AddTableCmd(QUndoCommand):
         self.pv, self.tile = page_view, TableTile(table, page_view.stack)
 
     def redo(self):
-        self.pv.page.tables.append(self.tile.model.table)
         self.pv.insert_tile(self.tile)
 
     def undo(self):
-        self.pv.page.tables.pop()
         self.pv.remove_tile(self.tile)
+
+
+class RemoveTableCmd(QUndoCommand):
+    """Kachel samt Tabelle raus; Undo setzt dasselbe Objekt an alter Stelle wieder ein."""
+
+    def __init__(self, page_view, tile: TableTile):
+        super().__init__("Tabelle löschen")
+        self.pv, self.tile, self.i = page_view, tile, page_view.tiles.index(tile)
+
+    def redo(self):
+        self.pv.remove_tile(self.tile)
+
+    def undo(self):
+        self.pv.insert_tile(self.tile, self.i)

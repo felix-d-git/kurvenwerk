@@ -15,6 +15,8 @@ app = QApplication.instance() or QApplication([])
 
 
 def window():
+    for o in QApplication.topLevelWidgets():
+        o.hide()  # alte Testfenster stehlen sonst die Aktivierung
     w = MainWindow()
     w.show()
     w.activateWindow()
@@ -57,6 +59,8 @@ def test_excel_entry_tab_enter_and_undo():
 
 def test_tile_switch_by_keyboard():
     w, pv, v, v2 = window()
+    for m in (v.model(), v2.model()):
+        m.set_cells({(3, 0): 1.0}, "Werte")  # Zeilen bis 4 genutzt
     v.setFocus()
     v.setCurrentIndex(v.model().index(3, 1))
     QTest.keyClick(v, Qt.Key_Tab)  # letzte Spalte → Nachbarkachel
@@ -124,3 +128,60 @@ def test_formula_column_scale_and_cell_formula():
     while w.stack.canUndo():
         w.stack.undo()
     assert [c.name for c in m.table.columns] == ["x", "y"]
+
+
+def test_rows_grow_with_data_and_enter_in_last_row():
+    w, pv, v, v2 = window()
+    m = v.model()
+    assert m.rowCount() == 1  # leer: nur eine Eingabezeile
+    v.setFocus()
+    v.setCurrentIndex(m.index(0, 0))
+    type_cell(v, "1", Qt.Key_Return)
+    assert m.rowCount() == 2 and cur(v) == (1, 0)  # Enter in der letzten Zeile → neue leere Zeile
+    type_cell(v, "2", Qt.Key_Return)
+    assert m.rowCount() == 3 and cur(v) == (2, 0)
+    m.set_cells({(0, 0): None}, "leeren")
+    assert m.rowCount() == 3  # Lücke oben bleibt
+    m.set_cells({(1, 0): None}, "leeren")
+    assert m.rowCount() == 1  # alles leer → nur Eingabezeile
+    w.stack.undo()
+    assert m.rowCount() == 3
+    m.paste("1\n2\n3\n4\n5", 2, 1, "auto")
+    assert m.rowCount() == 8
+
+
+def test_remove_table_undo_keeps_order():
+    w, pv, v, v2 = window()
+    pv.add_table()
+    t0, t1, t2 = pv.page.tables
+    pv.remove_table(pv.tiles[1])
+    assert pv.page.tables == [t0, t2] and [t.model.table for t in pv.tiles] == [t0, t2]
+    pv.remove_table(pv.tiles[0])
+    pv.remove_table(pv.tiles[0])
+    assert pv.page.tables == [] and pv.tiles == []
+    while w.stack.canUndo():
+        w.stack.undo()
+    assert len(pv.page.tables) == 1  # bis vor die beiden add_table
+    for _ in range(3):  # 2× hinzufügen, mittlere löschen
+        w.stack.redo()
+    assert pv.page.tables == [t0, t2]
+    w.stack.undo()
+    assert [t.model.table for t in pv.tiles] == [t0, t1, t2]
+    assert all(a is b for a, b in zip(pv.page.tables, (t0, t1, t2)))
+
+
+def test_remove_x_and_gauss_error_column():
+    w = MainWindow()  # ohne Fokus
+    m = w.page_view().tiles[0].model
+    m.paste("U\tI\tΔU\n2\t3\t0,1", 0, 0, "auto")
+    m.add_y()
+    m.set_formula(3, "U*I", True)
+    assert [c.name for c in m.table.columns] == ["U", "I", "ΔU", "y3", "Δy3"]
+    m.remove_column(4)  # Gauß-Δ: bleibt weg, Formel rechnet ohne Fehler weiter
+    assert [c.name for c in m.table.columns] == ["U", "I", "ΔU", "y3"] and not m.table.columns[3].gauss
+    m.remove_column(0)  # X-Spalte
+    assert [c.role for c in m.table.columns] == ["Y", "Δx", "Y"]
+    m.remove_column(9)  # außerhalb: nichts
+    w.stack.undo()
+    w.stack.undo()
+    assert [c.name for c in m.table.columns] == ["U", "I", "ΔU", "y3", "Δy3"]
