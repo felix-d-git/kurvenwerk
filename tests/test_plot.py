@@ -12,9 +12,9 @@ from kurvenwerk.plot import draw, export, label_error, safe, series
 def page(**plot) -> Page:
     t = Table("T", [
         Column("U", "V", "X", [1.0, 2.0, None, 4.0]),
-        Column("ΔU", "V", "Δx", [0.1, 0.1, 0.1, 0.2]),
+        Column("u_U", "V", "u_x", [0.1, 0.1, 0.1, 0.2]),
         Column("I", "mA", "Y", [10.0, 20.0, 30.0, 40.0]),
-        Column("dI", "mA", "Δy", [1.0, -2.0, 3.0]),  # Δ-Spalte rechts daneben, Name passt nicht
+        Column("dI", "mA", "u_y", [1.0, -2.0, 3.0]),  # Δ-Spalte rechts daneben, Name passt nicht
         Column("P", "mW", "Y", [10.0, 40.0, 90.0, None], style={"axis": "y2", "label": "$P$"}),
     ])
     return Page("S", [t], plot=plot)
@@ -120,7 +120,7 @@ def test_fit_error_shown_not_raised():
 
 
 def test_index_x_without_x_column():
-    s, = series(Table("T", [Column("y", "", "Y", [5.0, None, 7.0]), Column("Δy", "", "Δy", [0.1, 0.1, 0.1])]))
+    s, = series(Table("T", [Column("y", "", "Y", [5.0, None, 7.0]), Column("u_y", "", "u_y", [0.1, 0.1, 0.1])]))
     np.testing.assert_array_equal(s.x, [1, 3])
     assert s.xcol.name == "Index" and s.dx is None and list(s.rows) == [0, 2]
 

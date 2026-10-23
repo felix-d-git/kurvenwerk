@@ -10,7 +10,7 @@ from sympy.parsing.latex import parse_latex
 from sympy.parsing.sympy_parser import (convert_xor, implicit_multiplication, parse_expr,
                                         standard_transformations)
 
-from .model import Column
+from .model import U, Column
 
 ROW = "i"  # Zeilennummer ab 1, falls keine Spalte so heißt
 FUNCS = {
@@ -96,7 +96,7 @@ def evaluate(expr: sp.Expr, data: dict[str, np.ndarray], n: int) -> np.ndarray:
 
 
 def propagate(expr: sp.Expr, data: dict[str, np.ndarray], errors: dict[str, np.ndarray], n: int):
-    """→ (Wert, Gauß-Fehler) mit Δf = √Σ (∂f/∂x · Δx)², Eingänge als unkorreliert angenommen."""
+    """→ (Wert, Gauß-Fehler) mit u_f = √Σ (∂f/∂x · u_x)², Eingänge als unkorreliert angenommen."""
     var = 0.0
     for s in expr.free_symbols:
         if s.name in errors:
@@ -118,7 +118,7 @@ def _values(a: np.ndarray) -> list[float | None]:
 
 
 def error_column(cols: list[Column], name: str) -> Column | None:
-    return next((c for c in cols if c.name == "Δ" + name and c.role.startswith("Δ")), None)
+    return next((c for c in cols if c.name == U + name and c.role.startswith(U)), None)
 
 
 def row_value(text: str, cols: list[Column], row: int) -> float:
@@ -134,7 +134,7 @@ def row_value(text: str, cols: list[Column], row: int) -> float:
 
 def recompute(cols: list[Column]) -> dict[str, str]:
     """Berechnete Spalten (formula) neu füllen, abhängige nach ihren Quellen; mit gauss=True
-    landet der Gauß-Fehler in Δ<Name> (wird angelegt). → {Spaltenname: Fehlermeldung}."""
+    landet der Gauß-Fehler in u_<Name> (wird angelegt). → {Spaltenname: Fehlermeldung}."""
     by = {c.name: c for c in cols}
     calc = {c.name: c for c in cols if c.formula}
     exprs, failed, order = {}, {}, {}
@@ -145,7 +145,7 @@ def recompute(cols: list[Column]) -> dict[str, str]:
             failed[name] = str(e)
             continue
         refs = {s.name for s in exprs[name].free_symbols}
-        order[name] = {r for r in refs | {r[1:] for r in refs if r.startswith("Δ")} if r in calc} - {name}
+        order[name] = {r for r in refs | {r[len(U):] for r in refs if r.startswith(U)} if r in calc} - {name}
     try:
         names = list(TopologicalSorter(order).static_order())
     except CycleError:
@@ -165,7 +165,7 @@ def recompute(cols: list[Column]) -> dict[str, str]:
         if c.gauss:
             e = error_column(cols, name)
             if e is None:
-                e = Column("Δ" + name, c.unit, "Δx" if c.role == "X" else "Δy")
+                e = Column(U + name, c.unit, "u_x" if c.role == "X" else "u_y")
                 cols.insert(cols.index(c) + 1, e)
                 by[e.name] = e
             e.values = _values(err)

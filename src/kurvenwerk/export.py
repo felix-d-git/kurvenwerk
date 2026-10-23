@@ -9,7 +9,7 @@ from sympy.printing.numpy import NumPyPrinter
 
 from . import fit as fitting
 from . import plot
-from .model import Page, Project, Table
+from .model import U, Page, Project, Table
 from .rounding import num
 
 
@@ -62,7 +62,7 @@ def _tex(s: str) -> str:
 
 
 def latex_table(t: Table, rounded: bool = True) -> str:
-    """siunitx-S-Spalten; X/Y mit zugehöriger Δ-Spalte werden zu `Wert \\pm Fehler` (DIN-gerundet) zusammengefasst."""
+    """siunitx-S-Spalten; X/Y mit zugehöriger u-Spalte werden zu `Wert \\pm Fehler` (DIN-gerundet) zusammengefasst."""
     cols = t.columns
     err, used = {}, set()
     for j, c in enumerate(cols):
@@ -75,7 +75,9 @@ def latex_table(t: Table, rounded: bool = True) -> str:
     head = []
     for j in keep:
         c = cols[j]
-        head.append("{" + _tex(c.name) + (rf" / \unit{{{c.unit}}}" if c.unit else "") + "}")
+        name = c.name[len(U):]
+        name = f"$u_{{{name}}}$" if c.name.startswith(U) and name.isalnum() else _tex(c.name)
+        head.append("{" + name + (rf" / \unit{{{c.unit}}}" if c.unit else "") + "}")
     body = []
     for i in range(n):
         cells = []
@@ -128,16 +130,16 @@ def python_script(page: Page, style: dict) -> str:
         o = {**plot.SERIES, **s.ycol.style}
         ms = o["markersize"] or st["markersize"]
         a = "ax2" if o["axis"] == "y2" and has2 else "ax"
-        x, y, dx, dy = (s.y, s.x, s.dy, s.dx) if swap else (s.x, s.y, s.dx, s.dy)
+        x, y, ux, uy = (s.y, s.x, s.dy, s.dx) if swap else (s.x, s.y, s.dx, s.dy)
         if not o["errorbars"]:
-            dx = dy = None
+            ux = uy = None
         ls = o["linestyle"] or st["linestyle"]
         color, marker = o["color"] or colors[i % len(colors)], o["marker"] or st["marker"]
         out = np.isin(s.rows, s.ycol.fit.get("excluded", []))
         L += ["", f"# {plot.heading(s.ycol)} über {plot.heading(s.xcol)}", f"x, y = {_arr(x[~out])}, {_arr(y[~out])}"]
-        L.append(f"dx = {_arr(dx[~out]) if dx is not None else None}")
-        L.append(f"dy = {_arr(dy[~out]) if dy is not None else None}")
-        L.append(f"{a}.errorbar(x, y, xerr=dx, yerr=dy, label={plot.legend_label(s, o, page)!r}, "
+        L.append(f"u_x = {_arr(ux[~out]) if ux is not None else None}")
+        L.append(f"u_y = {_arr(uy[~out]) if uy is not None else None}")
+        L.append(f"{a}.errorbar(x, y, xerr=u_x, yerr=u_y, label={plot.legend_label(s, o, page)!r}, "
                  f"color={color!r}, marker={marker!r}, markersize={ms!r}, "
                  f"linestyle={'none' if ls == 'none' else ls!r}, linewidth={lw!r}, capsize={st['capsize']!r}, "
                  f"elinewidth={lw * 0.8!r})")

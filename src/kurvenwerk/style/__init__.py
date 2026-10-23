@@ -3,6 +3,7 @@ from pathlib import Path
 from string import Template
 
 FONTS = Path(__file__).parent / "fonts"
+LOGO = Path(__file__).parent / "logo.png"
 
 # color-mix/rgba aus App-Design1 vorberechnet; Qt-QSS kennt #AARRGGBB, kein color-mix.
 ACCENT = {"accent": "#0FB5A6", "accent_deep": "#0B867B", "accent_lift": "#35C1B4",

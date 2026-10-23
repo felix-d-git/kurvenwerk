@@ -1,10 +1,13 @@
 """Datenmodell: Projekt → Seiten → Tabellen → Spalten, gespeichert als JSON."""
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-VERSION = 5  # 2: Column.formula/gauss, 3: Column.style, Page.plot, Project.style, 4: Column.fit, 5: Page.description
-ROLES = ("X", "Y", "Δx", "Δy")
+VERSION = 6  # 2: Column.formula/gauss, 3: Column.style, Page.plot, Project.style, 4: Column.fit, 5: Page.description,
+# 6: Unsicherheit u_x statt Δx (Rollen, Spaltennamen, Formeln)
+ROLES = ("X", "Y", "u_x", "u_y")
+U = "u_"  # Präfix der Unsicherheitsspalte: u_<Name>
 
 
 @dataclass
@@ -14,13 +17,22 @@ class Column:
     role: str = "Y"
     values: list[float | None] = field(default_factory=list)  # None = leere Zelle
     formula: str = ""  # berechnete Spalte, siehe formula.recompute
-    gauss: bool = False  # Gauß-Fehler der Formel nach Δ<name>
+    gauss: bool = False  # Gauß-Fehler der Formel nach u_<name>
     style: dict = field(default_factory=dict)  # Reihen-Stil, Schlüssel siehe plot.SERIES
     fit: dict = field(default_factory=dict)  # Fit der Y-Spalte, Schlüssel siehe fit.FIT
 
     def __post_init__(self):
         if self.role not in ROLES:
             raise ValueError(f"Unbekannte Spaltenrolle: {self.role!r}")
+
+
+def _migrate(c: dict) -> dict:
+    """Spalte aus Version < 6: Δx/Δy → u_x/u_y, ΔU → u_U in Namen und Formeln."""
+    c = dict(c)
+    c["role"] = {"Δx": "u_x", "Δy": "u_y"}.get(c.get("role", "Y"), c.get("role", "Y"))
+    c["name"] = re.sub(r"^Δ", U, c.get("name", ""))
+    c["formula"] = re.sub(r"Δ(?=[^\W\d])", U, c.get("formula", ""))
+    return c
 
 
 @dataclass
@@ -53,7 +65,7 @@ class Project:
             raise ValueError(f"Projektversion {v!r} wird nicht unterstützt (max. {VERSION})")
         return cls([
             Page(p["title"], [
-                Table(t["name"], [Column(**c) for c in t["columns"]]) for t in p["tables"]
+                Table(t["name"], [Column(**(c if v >= 6 else _migrate(c))) for c in t["columns"]]) for t in p["tables"]
             ], p.get("show_plot", True), p.get("plot", {}), p.get("description", ""))
             for p in d["pages"]
         ], d.get("style", {}))

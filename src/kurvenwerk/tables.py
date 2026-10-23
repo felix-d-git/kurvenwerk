@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QAbstractItemDelegate, QAbstractItemView, QApplic
                                QWidget)
 
 from .formula import FUNCS, ROW, FormulaError, error_column, number, parse, prefix_factor, recompute, row_value
-from .model import ROLES, Column, Table
+from .model import ROLES, U, Column, Table
 from .paste import parse, to_float
 from .plot import _error, heading
 from .plotview import AttrCmd, series_style
@@ -158,9 +158,11 @@ class TableModel(QAbstractTableModel):
                 c = cols[col + j]
                 if headers and headers[j][0]:
                     c.name, c.unit = headers[j]
-                    if col + j >= len(self.table.columns) and c.name.startswith("Δ"):
+                    if c.name.startswith("Δ"):  # alte Notation aus Excel/CSV
+                        c.name = U + c.name[1:]
+                    if col + j >= len(self.table.columns) and c.name.startswith(U):
                         x = next((k.name for k in cols if k.role == "X"), None)
-                        c.role = "Δx" if c.name[1:] == x else "Δy"
+                        c.role = "u_x" if c.name[len(U):] == x else "u_y"
                 c.values.extend([None] * (row + len(vals) - len(c.values)))
                 c.values[row:row + len(vals)] = vals
         self.edit(fn, "Einfügen")
@@ -181,7 +183,7 @@ class TableModel(QAbstractTableModel):
         self.edit(fn, "Spaltenwerte setzen")
 
     def scale(self, j: int, k: float, unit: str | None = None) -> None:
-        """Spalte (und ihr Δ) × k; bei Formelspalten wird die Formel erweitert."""
+        """Spalte (und ihr u_) × k; bei Formelspalten wird die Formel erweitert."""
         def fn(cols):
             c = cols[j]
             e = error_column(cols, c.name)
@@ -223,18 +225,18 @@ class TableModel(QAbstractTableModel):
                 if e is not None:
                     del cols[next(k for k, c in enumerate(cols) if c is e)]  # Identität: Spalten können gleich sein
                     cols.insert(next(k for k, c in enumerate(cols) if c is owner) + 1, e)
-                    e.role = "Δx" if owner.role == "X" else "Δy"
+                    e.role = "u_x" if owner.role == "X" else "u_y"
         self.edit(fn, "Spalten tauschen")
 
     def remove_column(self, j: int) -> None:
-        """Auch X; Δ einer Gauß-Formelspalte → deren Gauß aus, sonst legt recompute sie sofort neu an."""
+        """Auch X; u_ einer Gauß-Formelspalte → deren Gauß aus, sonst legt recompute sie sofort neu an."""
         if not 0 <= j < self.columnCount() or self.columnCount() == 1:
             return
 
         def fn(cols):
             c = cols.pop(j)
             for k in cols:
-                if k.gauss and c.name == "Δ" + k.name:
+                if k.gauss and c.name == U + k.name:
                     k.gauss = False
         self.edit(fn, "Spalte löschen")
 
@@ -267,7 +269,7 @@ class FormulaDialog(QDialog):
         self.setWindowTitle(f"Spaltenwerte setzen – {c.name}")
         f = QFormLayout(self)
         self.text = QLineEdit(c.formula, placeholderText="z.B. U*I, \\frac{U}{I}, $U^2$")
-        self.gauss = QCheckBox(f"Gauß-Fehler nach Δ{c.name} schreiben", checked=c.gauss or not c.formula)
+        self.gauss = QCheckBox(f"Gauß-Fehler nach {U}{c.name} schreiben", checked=c.gauss or not c.formula)
         self.msg = QLabel(wordWrap=True)
         refs = ", ".join(n for n in self.names if n.isidentifier() and n != c.name)
         f.addRow("Formel", self.text)
@@ -401,7 +403,7 @@ class TableView(QTableView):
             w.show_stats(*self.selection_stats())
 
     def selection_stats(self) -> tuple[dict, str]:
-        """Statistik der markierten Zellen (ab 2). Nur eine Spalte → deren Einheit und Δ-Spalte (gewichteter Mittelwert)."""
+        """Statistik der markierten Zellen (ab 2). Nur eine Spalte → deren Einheit und u-Spalte (gewichteter Mittelwert)."""
         from . import plot
         from .stats import describe
         idx = self.selectedIndexes()

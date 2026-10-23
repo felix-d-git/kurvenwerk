@@ -53,6 +53,22 @@ def _value(v: float, e: float, rounded: bool) -> str:
     return f"{v:.6g}"
 
 
+def parts(v: float, e: float, rounded: bool = True, pct: bool = False) -> tuple[str, str]:
+    """(Wert, Unsicherheit) getrennt, gleiche Rundung wie num; pct → Unsicherheit relativ mit ` %`."""
+    ok = math.isfinite(v) and math.isfinite(e) and e > 0
+    if pct and ok and v:
+        rel = 100 * e / abs(v)
+        return _value(v, e, rounded), (f"{din(0, rel)[1]:f}" if rounded else f"{rel:.2g}") + " %"
+    if ok and rounded:
+        k = _exp(v, e)
+        try:
+            rv, re_ = din(v / 10 ** k, e / 10 ** k)
+            return (f"{rv:f}e{k}", f"{re_:f}e{k}") if k else (f"{rv:f}", f"{re_:f}")
+        except InvalidOperation:
+            pass
+    return f"{v:.6g}", f"{e:.2g}"
+
+
 def fmt(v: float, e: float | None = None, rounded: bool = True, tex: bool = False, unit: str = "",
         pct: bool = False) -> str:
     """Zahl mit Einheit: Text `(1.23 ± 0.05) mV` bzw. `\\qty{1.23 \\pm 0.05}{mV}`.

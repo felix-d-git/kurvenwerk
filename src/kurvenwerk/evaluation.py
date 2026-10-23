@@ -26,7 +26,7 @@ def _label(text: str) -> QLabel:
 
 
 def columns(page: Page) -> list[tuple[str, np.ndarray, np.ndarray | None, str, object]]:
-    """Alle Spalten der Seite: (Beschriftung, Werte, Δ-Werte für den gewichteten Mittelwert, Einheit, Spalte)."""
+    """Alle Spalten der Seite: (Beschriftung, Werte, u-Werte für den gewichteten Mittelwert, Einheit, Spalte)."""
     out = []
     for t in page.tables:
         cols = t.columns

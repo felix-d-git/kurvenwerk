@@ -1,11 +1,11 @@
 """Statistik einer Auswahl und Ergebnistexte (Statistik-Leiste, Fit-Güte) als Text bzw. siunitx."""
 import numpy as np
 
-from .rounding import fmt
+from .rounding import fmt, parts
 
 
 def describe(x, dx=None) -> dict:
-    """Kennzahlen der endlichen Werte; gewichteter Mittelwert (w = 1/Δx²) nur, wenn alle Δx > 0."""
+    """Kennzahlen der endlichen Werte; gewichteter Mittelwert (w = 1/u_x²) nur, wenn alle u_x > 0."""
     x = np.asarray(x, float)
     ok = np.isfinite(x)
     x = x[ok]
@@ -38,10 +38,20 @@ def summary(d: dict, rounded=True, tex=False, unit="", pct=False) -> str:
     return "  ·  ".join(f"{lt} = {fmt(v, e, rounded, False, u, pct)}" for lt, _, v, e, u in rows if np.isfinite(v))
 
 
+def param(n: str, v: float, e: float, free=True, rounded=True, tex=False, pct=False) -> str:
+    """Fit-Parameter mit eigener Unsicherheit: `a = 1.20, u_a = 0.10` bzw. siunitx; fix → nur der Wert."""
+    if not free:
+        return rf"${n}$ = \num{{{fmt(v, None, rounded)}}} (fix)" if tex else f"{n} = {fmt(v, None, rounded)} (fix)"
+    vs, es = parts(v, e, rounded, pct)
+    if not tex:
+        return f"{n} = {vs}, u_{n} = {es}"
+    es = rf"\qty{{{es[:-2]}}}{{\percent}}" if es.endswith(" %") else rf"\num{{{es}}}"
+    return rf"${n}$ = \num{{{vs}}}, $u_{{{n}}}$ = {es}"
+
+
 def fit_short(r, rounded=True, pct=False) -> str:
     """Kurzergebnis fürs Panel: je Parameter eine Zeile, dazu χ²/ndf (gewichtet) bzw. R²."""
-    lines = [f"{n} = {fmt(v, e if fr else None, rounded, False, pct=pct)}" + ("" if fr else " (fix)")
-             for n, v, e, fr in zip(r.params, r.values, r.errors, r.free)]
+    lines = [param(n, v, e, fr, rounded, pct=pct) for n, v, e, fr in zip(r.params, r.values, r.errors, r.free)]
     if r.absolute and r.ndf:
         lines.append(f"χ²/ndf = {r.chi2 / r.ndf:.3g}")
     elif np.isfinite(r.r2):
@@ -50,11 +60,8 @@ def fit_short(r, rounded=True, pct=False) -> str:
 
 
 def fit_report(r, rounded=True, tex=False, pct=False) -> str:
-    """Parameter ± Fehler, Güte und (nur Text) Kovarianz-/Korrelationsmatrix eines fit.Result."""
-    lines = []
-    for n, v, e, fr in zip(r.params, r.values, r.errors, r.free):
-        val = fmt(v, e if fr else None, rounded, tex, pct=pct)
-        lines.append(f"${n}$ = {val}" if tex else f"{n} = {val}" + ("" if fr else " (fix)"))
+    """Parameter mit u_<Parameter>, Güte und (nur Text) Kovarianz-/Korrelationsmatrix eines fit.Result."""
+    lines = [param(n, v, e, fr, rounded, tex, pct) for n, v, e, fr in zip(r.params, r.values, r.errors, r.free)]
     g = [("R²", "R^2", r.r2), ("adj. R²", r"\bar{R}^2", r.r2adj), ("RMSE", r"\mathrm{RMSE}", r.rmse)]
     if r.absolute:
         g += [("χ²/ndf", r"\chi^2/\mathrm{ndf}", r.chi2 / r.ndf if r.ndf else np.nan), ("p", "p", r.p)]

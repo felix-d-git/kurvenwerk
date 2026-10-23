@@ -34,7 +34,7 @@ class FormDialog(QDialog):
             else:
                 w = QLineEdit("" if v is None else f"{v:g}" if isinstance(v, float) else str(v))
             if kind == "math":
-                w.setPlaceholderText("auto · LaTeX-Mathe in $…$, z.B. $\\Delta U$ / mV")
+                w.setPlaceholderText("auto · LaTeX-Mathe in $…$, z.B. $u_U$ / mV")
             elif kind == "num":
                 w.setPlaceholderText("auto")
             self.w[key] = w

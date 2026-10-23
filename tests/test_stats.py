@@ -47,7 +47,7 @@ def test_fit_goodness_unweighted():
     assert math.isclose(r.corr[0, 1], -3 / math.sqrt(11))  # −x̄ / √(Σx²/n)
     assert math.isnan(r.p)
     t = fit_report(r)
-    assert "a = 0.8 ± 0.4" in t and "R² = 0.64" in t and "Korrelation" in t
+    assert "a = 0.8, u_a = 0.4" in t and "R² = 0.64" in t and "Korrelation" in t
 
 
 def test_fit_goodness_weighted_p():
@@ -56,12 +56,12 @@ def test_fit_goodness_weighted_p():
     # P(χ²₃ > c) = erfc(√(c/2)) + √(2c/π)·e^(−c/2)
     c = 3.6
     assert math.isclose(r.p, math.erfc(math.sqrt(c / 2)) + math.sqrt(2 * c / math.pi) * math.exp(-c / 2))
-    assert "χ²/ndf = 1.2" in fit_report(r) and r"$a$ = \num{0.8 \pm 0.4}" in fit_report(r, tex=True)
+    assert "χ²/ndf = 1.2" in fit_report(r) and r"$a$ = \num{0.8}, $u_{a}$ = \num{0.4}" in fit_report(r, tex=True)
 
 
 def test_fit_short():
     t = fit_short(fitting.fit("a*x + b", X, Y)).splitlines()
-    assert t[0] == "a = 0.8 ± 0.4" and t[-1] == "R² = 0.64" and len(t) == 3
+    assert t[0] == "a = 0.8, u_a = 0.4" and t[-1] == "R² = 0.64" and len(t) == 3
     assert fit_short(fitting.fit("a*x + b", X, Y, dy=np.ones(5))).endswith("χ²/ndf = 1.2")
 
 
@@ -97,3 +97,11 @@ def test_outliers():
     x = [2.0, 2.1, 1.9, 2.0, 2.2, 1.8, 2.1, 2.0, 9.0, 1.9]
     assert list(np.flatnonzero(outliers_grubbs(x))) == [8]
     assert not outliers_grubbs(x[:8]).any()
+
+
+def test_param():
+    from kurvenwerk.stats import param
+    assert param("b", 1.234, 0.056) == "b = 1.23, u_b = 0.06"
+    assert param("b", 1.234, 0.056, free=False) == "b = 1.234 (fix)"
+    assert param("b", 2.0, 0.05, pct=True) == "b = 2.00, u_b = 2.5 %"
+    assert param("b", 2.0, 0.05, tex=True, pct=True) == r"$b$ = \num{2.00}, $u_{b}$ = \qty{2.5}{\percent}"

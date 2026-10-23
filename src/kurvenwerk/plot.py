@@ -67,10 +67,10 @@ def _arr(vals: list, n: int) -> np.ndarray:
 
 
 def _error(cols: list[Column], j: int) -> Column | None:
-    """Δ<Name>, sonst eine Δ-Spalte direkt rechts daneben."""
+    """u_<Name>, sonst eine Unsicherheitsspalte direkt rechts daneben."""
     c = cols[j]
     e = error_column(cols, c.name)
-    want = "Δx" if c.role == "X" else "Δy"
+    want = "u_x" if c.role == "X" else "u_y"
     if e is None and j + 1 < len(cols) and cols[j + 1].role == want:
         e = cols[j + 1]
     return e
@@ -95,7 +95,7 @@ def series(table: Table) -> list[Series]:
         if not ok.any():
             continue
         dyc = _error(cols, j)
-        dx = np.abs(np.nan_to_num(_arr(dxc.values, n)[ok])) if dxc else None  # errorbar verbietet Δ < 0
+        dx = np.abs(np.nan_to_num(_arr(dxc.values, n)[ok])) if dxc else None  # errorbar verbietet u < 0
         dy = np.abs(np.nan_to_num(_arr(dyc.values, n)[ok])) if dyc else None
         out.append(Series(x[ok], y[ok], dx, dy, xc, yc, np.flatnonzero(ok), table.name))
     return out

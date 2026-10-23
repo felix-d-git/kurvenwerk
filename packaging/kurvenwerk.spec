@@ -18,7 +18,7 @@ a = Analysis(
     excludes=["tkinter", "PyQt5", "PyQt6", "PySide2", "IPython", "pytest", "_pytest", "pygments"],
 )
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Kurvenwerk", console=False)
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Kurvenwerk", console=False, icon=str(HERE / "kurvenwerk.ico"))
 COLLECT(exe, a.binaries, a.datas, name="Kurvenwerk")
 
 # Lizenztexte neben die .exe: eigene, LGPL/GPL, Python und alle gebündelten Pakete

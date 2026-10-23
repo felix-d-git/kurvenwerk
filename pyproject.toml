@@ -26,4 +26,4 @@ kurvenwerk = "kurvenwerk.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-kurvenwerk = ["style/fonts/*"]
+kurvenwerk = ["style/fonts/*", "style/logo.png"]
