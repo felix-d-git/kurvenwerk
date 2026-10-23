@@ -1,10 +1,11 @@
-"""Hauptfenster: Seiten-Tabs, je Seite Splitter Tabellen | Plot, Menüs, ein Undo-Stack pro Projekt."""
+"""Hauptfenster: Seiten-Tabs, je Seite vierteiliges Splitter-Layout, Menüs, ein Undo-Stack pro Projekt."""
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QActionGroup, QKeySequence, QUndoStack
-from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QMainWindow,
-                               QMenu, QMessageBox, QPlainTextEdit, QSplitter, QTabWidget, QToolButton, QWidget)
+from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QMainWindow,
+                               QMenu, QMessageBox, QPlainTextEdit, QSplitter, QTabWidget, QToolButton, QVBoxLayout,
+                               QWidget)
 
 from . import export
 from .model import Page, Project, Table
@@ -15,11 +16,21 @@ from .tables import AddTableCmd, RemoveTableCmd, TableTile, TableView, paste_dec
 FILTER = "Kurvenwerk-Projekt (*.kwproj);;JSON (*.json)"
 
 
+def placeholder(title: str, text: str) -> QFrame:
+    f = QFrame(objectName="panel")
+    lay = QVBoxLayout(f)
+    lay.addWidget(QLabel(title, objectName="panelTitle"))
+    lay.addWidget(QLabel(text, wordWrap=True, objectName="hint"))
+    lay.addStretch()
+    return f
+
+
 class PageView(QSplitter):
+    """Vierteilig: oben Tabellen | Plot | Einstellungen, unten Auswertung; alle Bereiche zuklappbar."""
     changed = Signal()  # Beschreibung geändert (nicht im Undo-Stack)
 
     def __init__(self, page: Page, project: Project, stack: QUndoStack):
-        super().__init__(Qt.Horizontal)
+        super().__init__(Qt.Vertical)
         self.setObjectName("page")
         self.page, self.stack = page, stack
         tables = QWidget()
@@ -35,14 +46,40 @@ class PageView(QSplitter):
             self.insert_tile(TableTile(t, stack))
         self.description = QPlainTextEdit(page.description, placeholderText="Beschreibung der Seite (Freitext)")
         self.description.textChanged.connect(self._description)
-        left = QSplitter(Qt.Vertical)
-        left.addWidget(tables)
-        left.addWidget(self.description)
-        left.setSizes([4, 1])
-        self.addWidget(left)
-        self.addWidget(self.plot)
+        self.left = QSplitter(Qt.Vertical)
+        self.left.addWidget(tables)
+        self.left.addWidget(self.description)
+        self.left.setSizes([400, 100])
+        self.top = QSplitter(Qt.Horizontal)
+        self.top.addWidget(self.left)
+        self.top.addWidget(self.plot)
+        self.top.addWidget(placeholder("Einstellungen", "Plot-Einstellungen und Fits folgen hier."))
+        self.top.setSizes([450, 550, 220])
+        self.addWidget(self.top)
+        self.addWidget(placeholder("Auswertung", "Statistik, t-Tests und Histogramm folgen hier."))
+        self.setSizes([600, 120])
+        for s in self.splitters().values():
+            s.setChildrenCollapsible(True)
+            s.setHandleWidth(6)
+            s.splitterMoved.connect(self.save_layout)
         self.plot.setVisible(page.show_plot)
-        self.setSizes([1, 1])
+
+    def splitters(self) -> dict[str, QSplitter]:
+        return {"main": self, "top": self.top, "left": self.left}
+
+    def save_layout(self):
+        for k, s in self.splitters().items():
+            settings().setValue(f"layout/{k}", s.saveState())
+
+    def restore_layout(self):
+        for k, s in self.splitters().items():
+            if (state := settings().value(f"layout/{k}")) is not None:
+                s.restoreState(state)
+        self.plot.setVisible(self.page.show_plot)  # restoreState setzt auch Sichtbarkeit
+
+    def showEvent(self, e):
+        self.restore_layout()  # jede Seite übernimmt beim Anzeigen das zuletzt gezogene Layout
+        super().showEvent(e)
 
     def _description(self):
         self.page.description = self.description.toPlainText()

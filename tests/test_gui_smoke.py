@@ -39,6 +39,25 @@ def test_pages_sync(tmp_path, monkeypatch):
     assert Project.load(w.path) == w.project
 
 
+def test_layout_collapsible_and_remembered(tmp_path, monkeypatch):
+    from PySide6.QtCore import QSettings
+    from kurvenwerk import mainwindow
+    ini = QSettings(str(tmp_path / "s.ini"), QSettings.IniFormat)
+    monkeypatch.setattr(mainwindow, "settings", lambda: ini)  # nicht in die echte Registry schreiben
+    w = MainWindow()
+    w.resize(1200, 750)
+    w.show()
+    pv = w.page_view()
+    assert pv.count() == 2 and pv.top.count() == 3  # Tabellen | Plot | Panel, darunter Auswertung
+    assert all(s.childrenCollapsible() for s in pv.splitters().values())
+    pv.top.setSizes([0, 800, 300])  # Tabellen ganz zugeklappt
+    pv.save_layout()
+    w.add_page()  # neue Seite übernimmt das Layout beim Anzeigen
+    app.processEvents()
+    assert w.page_view().top.sizes()[0] == 0 and w.page_view().plot.isVisible()
+    w.hide()
+
+
 def test_plot_live_update_and_undo():
     w = MainWindow()
     pv = w.page_view()

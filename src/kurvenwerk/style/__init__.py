@@ -37,8 +37,11 @@ QPushButton { background: $accent; color: $on_accent; border: none; border-radiu
               padding: 6px 14px; font-weight: 600; }
 QPushButton:hover { background: $accent_lift; }
 QPushButton:pressed { background: $accent_deep; }
-QSplitter::handle { background: $line; }
-QSplitter::handle:horizontal { width: 1px; }
+QSplitter::handle { background: $line_2; }
+QSplitter::handle:hover, QSplitter::handle:pressed { background: $accent; }
+QFrame#panel { background: $surface; border: 1px solid $line; border-radius: $r_sm; }
+QLabel#panelTitle { font-weight: 600; }
+QLabel#hint { color: $ink_3; }
 QTableView { background: $surface; alternate-background-color: $sunken; gridline-color: $line;
              border: 1px solid $line; border-radius: $r_sm; selection-background-color: $accent_soft;
              selection-color: $ink; font-family: "$mono"; }
