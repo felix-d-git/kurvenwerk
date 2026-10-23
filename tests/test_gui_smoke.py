@@ -114,7 +114,9 @@ def test_selection_stats_and_fit_report():
     m = v.model()
     m.set_cells({(i, j): float(i + 1) * (j + 1) + (0.1 if j and i % 2 else 0) for i in range(4) for j in (0, 1)}, "W")
     v.selectionModel().select(QItemSelection(m.index(0, 1), m.index(3, 1)), QItemSelectionModel.ClearAndSelect)
-    assert w.stats[0]["n"] == 4 and "n = 4" in w.stats_label.text()
+    ev = w.page_view().evaluation
+    app.processEvents()
+    assert ev.selection[0]["n"] == 4 and ev.desc_title.text() == "Auswahl" and "n = 4" in ev.desc.text()
     m.table.columns[1].fit = {"formula": "a*x + b"}
     d = FitDialog(plot.series(m.table)[0], v)
     d.preview()
@@ -151,3 +153,24 @@ def test_panel_fit_formula_and_axes():
     assert "grid" in w.project.style and w.stack.undo() is None and w.project.style == {}
     pv.panel.checks["grid"].setChecked(False)
     assert not pv.plot.canvas.figure.axes[0].xaxis.get_gridlines()[0].get_visible()
+
+
+def test_evaluation_bar():
+    w = MainWindow()
+    pv = w.page_view()
+    ev, m = pv.evaluation, pv.tiles[0].model
+    m.set_cells({(i, 0): float(i) for i in range(8)} | {(i, 1): v for i, v in enumerate([1, 2, 3, 2, 1, 2, 3, 50])}, "W")
+    app.processEvents()
+    assert ev.a.currentText().endswith("y") and "n = 8" in ev.desc.text()  # Standard: erste Y-Spalte
+    assert "Sollwert" in ev.ttest.text() and "Zweite Spalte" in ev.welch.text()
+    assert "Ausreißer (IQR (1.5)): 50" in ev.out.text()
+    ev.mu0.setText("0")
+    ev.b.setCurrentIndex(1)  # x
+    app.processEvents()
+    assert "p = " in ev.ttest.text() and "Δx̄ = " in ev.welch.text()
+    ev.copy(True)
+    t = QApplication.clipboard().text()
+    assert r"$\bar{x}$ = \num{8 \pm 7}" in t and r"$\Delta\bar{x}$" in t and "Welch" in t
+    m.add_y()  # neue Spalte erscheint in den Listen, Auswahl bleibt
+    app.processEvents()
+    assert ev.a.count() == 3 and ev.a.currentText().endswith("y")

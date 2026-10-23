@@ -3,27 +3,18 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QActionGroup, QKeySequence, QUndoStack
-from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QMainWindow,
-                               QMenu, QMessageBox, QPlainTextEdit, QSplitter, QTabWidget, QToolButton, QVBoxLayout,
+from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QInputDialog, QMainWindow,
+                               QMessageBox, QPlainTextEdit, QSplitter, QTabWidget, QToolButton, QVBoxLayout,
                                QWidget)
 
 from . import export
+from .evaluation import EvalBar
 from .model import Page, Project, Table
 from .panel import SettingsPanel
 from .plotview import AttrCmd, PlotPanel, edit_style
-from .stats import summary
 from .tables import AddTableCmd, RemoveTableCmd, TableTile, TableView, paste_decimal, result_opts, settings
 
 FILTER = "Kurvenwerk-Projekt (*.kwproj);;JSON (*.json)"
-
-
-def placeholder(title: str, text: str) -> QFrame:
-    f = QFrame(objectName="panel")
-    lay = QVBoxLayout(f)
-    lay.addWidget(QLabel(title, objectName="panelTitle"))
-    lay.addWidget(QLabel(text, wordWrap=True, objectName="hint"))
-    lay.addStretch()
-    return f
 
 
 class PageView(QSplitter):
@@ -43,6 +34,7 @@ class PageView(QSplitter):
         self.tiles: list[TableTile] = []
         self.plot = PlotPanel(page, project, stack)
         self.plot.set_fit = self.set_fit
+        self.evaluation = EvalBar(page)
         for t in page.tables:
             self.insert_tile(TableTile(t, stack))
         self.description = QPlainTextEdit(page.description, placeholderText="Beschreibung der Seite (Freitext)")
@@ -59,8 +51,8 @@ class PageView(QSplitter):
         self.plot.on_dblclick = self.show_settings
         self.top.setSizes([450, 550, 220])
         self.addWidget(self.top)
-        self.addWidget(placeholder("Auswertung", "Statistik, t-Tests und Histogramm folgen hier."))
-        self.setSizes([600, 120])
+        self.addWidget(self.evaluation)
+        self.setSizes([560, 190])
         for s in self.splitters().values():
             s.setChildrenCollapsible(True)
             s.setHandleWidth(6)
@@ -137,8 +129,10 @@ class PageView(QSplitter):
         tile.remove.connect(lambda t=tile: self.remove_table(t))
         for sig in self._signals(tile):
             sig.connect(self.plot.schedule)
+            sig.connect(self.evaluation.schedule)
         tile.show()
         self.plot.schedule()
+        self.evaluation.schedule()
 
     def remove_tile(self, tile: TableTile):
         i = self.tiles.index(tile)
@@ -147,7 +141,9 @@ class PageView(QSplitter):
         tile.remove.disconnect()
         for sig in self._signals(tile):
             sig.disconnect(self.plot.schedule)
+            sig.disconnect(self.evaluation.schedule)
         self.plot.schedule()
+        self.evaluation.set_selection({"n": 0}, "")  # Auswahl gehörte evtl. zur entfernten Tabelle
         self.row.removeWidget(tile)
         tile.setParent(None)  # Objekt lebt im AddTableCmd weiter
 
@@ -182,11 +178,6 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
         self.stack = QUndoStack(self)
         self.stack.indexChanged.connect(self._changed)
-        self.stats, self.stats_label = ({"n": 0}, ""), QLabel(textFormat=Qt.PlainText,
-                                                       textInteractionFlags=Qt.TextSelectableByMouse)
-        self.stats_label.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.stats_label.customContextMenuRequested.connect(lambda p: self.copy_menu().exec(self.cursor().pos()))
-        self.statusBar().addWidget(self.stats_label, 1)
 
         m = self.menuBar().addMenu("&Datei")
         for text, key, slot in [("&Neu", QKeySequence.New, self.new),
@@ -217,10 +208,14 @@ class MainWindow(QMainWindow):
         e.addSeparator()
         for text, key, default in [("Ergebnisse &DIN-runden", "results/din", True),
                                    ("Unsicherheit relativ in &%", "results/pct", False)]:
-            a = e.addAction(text, lambda on, k=key: (settings().setValue(k, on), self.show_stats(*self.stats)))
+            a = e.addAction(text, lambda on, k=key: (settings().setValue(k, on),
+                                                                   [self.tabs.widget(i).evaluation.schedule()
+                                                                    for i in range(self.tabs.count())]))
             a.setCheckable(True)
             a.setChecked(settings().value(key, default, type=bool))
-        e.addMenu(self.copy_menu())
+        c = e.addMenu("Ergebnisse &kopieren")
+        for text, tex in [("als &Text", False), ("als &siunitx", True)]:
+            c.addAction(text, lambda t=tex: self.page_view().evaluation.copy(t))
         t = self.menuBar().addMenu("&Tabelle")
         t.addAction("&Neue Tabelle", QKeySequence("Ctrl+Shift+T"), lambda: self.page_view().add_table())
         t.addAction("Tabelle &löschen", lambda: (v := self.table_view()) and self.page_view().remove_table(
@@ -254,15 +249,9 @@ class MainWindow(QMainWindow):
 
     # --- Statistik & Ausgabe ---
     def show_stats(self, d: dict, unit: str):
-        self.stats = (d, unit)
-        self.stats_label.setText(summary(d, unit=unit, **result_opts()))
-
-    def copy_menu(self) -> QMenu:
-        m = QMenu("Statistik &kopieren", self)
-        for text, tex in [("als &Text", False), ("als &siunitx", True)]:
-            m.addAction(text, lambda t=tex: QApplication.clipboard().setText(
-                summary(self.stats[0], unit=self.stats[1], tex=t, **result_opts())))
-        return m
+        """Statistik der Tabellenauswahl → Auswertungsleiste der aktuellen Seite."""
+        if pv := self.page_view():
+            pv.evaluation.set_selection(d, unit)
 
     def _save_name(self, title: str, filters: str) -> str:
         f, _ = QFileDialog.getSaveFileName(self, title, "", filters)

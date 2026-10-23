@@ -72,3 +72,94 @@ def fit_report(r, rounded=True, tex=False, pct=False) -> str:
             lines.append(f"{title}:")
             lines += [f"  {n:<{w}} " + " ".join(f.format(c) for c in row) for n, row in zip(names, m)]
     return "\n".join(lines)
+
+
+def _finite(x) -> np.ndarray:
+    x = np.asarray(x, float)
+    return x[np.isfinite(x)]
+
+
+def ttest(x, mu0: float) -> dict:
+    """Einstichproben-t-Test H₀: μ = μ₀ (zweiseitig)."""
+    from scipy import stats as st
+    d = describe(x)
+    if d["n"] < 2 or not d["std"]:
+        return {}
+    t = (d["mean"] - mu0) / d["sem"]
+    return {"t": t, "df": d["n"] - 1, "p": float(2 * st.t.sf(abs(t), d["n"] - 1)), "mean": d["mean"], "sem": d["sem"]}
+
+
+def welch(x, y) -> dict:
+    """Welch-t-Test zweier Stichproben: Differenz x̄₁ − x̄₂ ± √(s₁²/n₁ + s₂²/n₂), Freiheitsgrade nach Satterthwaite."""
+    from scipy import stats as st
+    a, b = describe(x), describe(y)
+    if a["n"] < 2 or b["n"] < 2:
+        return {}
+    va, vb = a["sem"] ** 2, b["sem"] ** 2
+    u = np.sqrt(va + vb)
+    if not u:
+        return {}
+    df = (va + vb) ** 2 / (va ** 2 / (a["n"] - 1) + vb ** 2 / (b["n"] - 1))
+    diff = a["mean"] - b["mean"]
+    t = diff / u
+    return {"diff": diff, "u": float(u), "t": t, "df": float(df), "p": float(2 * st.t.sf(abs(t), df))}
+
+
+def outliers_iqr(x, k: float = 1.5) -> np.ndarray:
+    """Maske: außerhalb [Q1 − k·IQR, Q3 + k·IQR] (Tukey)."""
+    x = np.asarray(x, float)
+    q1, q3 = np.nanpercentile(x, [25, 75]) if np.isfinite(x).any() else (np.nan, np.nan)
+    return (x < q1 - k * (q3 - q1)) | (x > q3 + k * (q3 - q1))
+
+
+def grubbs_crit(n: int, alpha: float = 0.05) -> float:
+    """Kritischer Wert des zweiseitigen Grubbs-Tests."""
+    from scipy import stats as st
+    t = st.t.ppf(1 - alpha / (2 * n), n - 2)
+    return (n - 1) / np.sqrt(n) * np.sqrt(t * t / (n - 2 + t * t))
+
+
+def outliers_grubbs(x, alpha: float = 0.05) -> np.ndarray:
+    """Maske: Grubbs-Test wiederholt, solange der extremste Wert signifikant ist (ab n = 3)."""
+    x = np.asarray(x, float)
+    out = np.zeros(len(x), bool)
+    while (n := int((keep := np.isfinite(x) & ~out).sum())) >= 3:
+        v = x[keep]
+        s = v.std(ddof=1)
+        if not s:
+            break
+        g = np.where(keep, np.abs(x - v.mean()), -1)
+        i = int(np.argmax(g))
+        if g[i] / s <= grubbs_crit(n, alpha):
+            break
+        out[i] = True
+    return out
+
+
+def _p(p: float) -> str:
+    return "< 0.001" if p < 1e-3 else f"{p:.3g}"
+
+
+def ttest_text(r: dict, mu0: float, alpha: float, tex=False) -> str:
+    """t-Test-Ergebnis mit Entscheidung über H₀ bei α."""
+    if not r:
+        return ""
+    keep = r["p"] >= alpha
+    dec = f"H₀ (μ = {mu0:g}) {'beibehalten' if keep else 'verworfen'} bei α = {alpha:g}"
+    if tex:
+        p = r"p < \num{0.001}" if r["p"] < 1e-3 else rf"p = \num{{{r['p']:.3g}}}"
+        return (rf"$t = \num{{{r['t']:.4g}}}$, $\nu = {r['df']}$, ${p}$" + "\n"
+                + rf"$H_0$ ($\mu = \num{{{mu0:g}}}$) {'beibehalten' if keep else 'verworfen'} bei $\alpha = \num{{{alpha:g}}}$")
+    return f"t = {r['t']:.4g}  ·  ν = {r['df']}  ·  p = {_p(r['p'])}\n{dec}"
+
+
+def welch_text(r: dict, rounded=True, tex=False, unit="", pct=False) -> str:
+    """Differenz ± Unsicherheit, t, ν, p."""
+    if not r:
+        return ""
+    d = fmt(r["diff"], r["u"], rounded, tex, unit, pct)
+    if tex:
+        p = r"p < \num{0.001}" if r["p"] < 1e-3 else rf"p = \num{{{r['p']:.3g}}}"
+        return (rf"$\Delta\bar{{x}}$ = {d}" + "\n"
+                + rf"$t = \num{{{r['t']:.4g}}}$, $\nu = \num{{{r['df']:.3g}}}$, ${p}$")
+    return f"Δx̄ = {d}\nt = {r['t']:.4g}  ·  ν = {r['df']:.3g}  ·  p = {_p(r['p'])}"
