@@ -118,8 +118,7 @@ def python_script(page: Page, style: dict) -> str:
          "import numpy", "import numpy as np", "",
          f'plt.rcParams.update({{"font.size": {st["fontsize"]!r}, "font.family": {st["font"]!r}}})',
          f"fig, ax = plt.subplots(figsize=({st['export_w']!r} / 2.54, {st['export_h']!r} / 2.54), "
-         'layout="constrained")',
-         f"ax.grid({bool(st['grid'])}, alpha=0.3)"]
+         'layout="constrained")'] + (["ax.grid(True, alpha=0.3)"] if st["grid"] else [])
     has2 = any({**plot.SERIES, **s.ycol.style}["axis"] == "y2" for s in all_s)
     if has2:
         L.append(f"ax2 = ax.{'twiny' if swap else 'twinx'}()")

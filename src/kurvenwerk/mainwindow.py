@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, Q
 
 from . import export
 from .model import Page, Project, Table
+from .panel import SettingsPanel
 from .plotview import AttrCmd, PlotPanel, edit_style
 from .stats import summary
 from .tables import AddTableCmd, RemoveTableCmd, TableTile, TableView, paste_decimal, result_opts, settings
@@ -53,7 +54,9 @@ class PageView(QSplitter):
         self.top = QSplitter(Qt.Horizontal)
         self.top.addWidget(self.left)
         self.top.addWidget(self.plot)
-        self.top.addWidget(placeholder("Einstellungen", "Plot-Einstellungen und Fits folgen hier."))
+        self.panel = SettingsPanel(page, project, stack, self.plot, self.set_fit, self.set_style)
+        self.top.addWidget(self.panel)
+        self.plot.on_dblclick = self.show_settings
         self.top.setSizes([450, 550, 220])
         self.addWidget(self.top)
         self.addWidget(placeholder("Auswertung", "Statistik, t-Tests und Histogramm folgen hier."))
@@ -85,13 +88,34 @@ class PageView(QSplitter):
         self.page.description = self.description.toPlainText()
         self.changed.emit()
 
-    def set_fit(self, col, fit: dict):
-        """Fit der Spalte (Objekt aus dem Plot) über das Modell ihrer Tabelle → Undo."""
+    def _model_col(self, col):
+        """(Tabellenmodell, Spaltenindex) zum Spaltenobjekt aus Plot/Panel."""
         for t in self.tiles:
-            cols = t.model.table.columns
-            j = next((j for j, c in enumerate(cols) if c is col), None)
+            j = next((j for j, c in enumerate(t.model.table.columns) if c is col), None)
             if j is not None:
-                t.model.set_fit(j, fit)
+                return t.model, j
+        return None, None
+
+    def set_fit(self, col, fit: dict):
+        """Fit der Spalte über das Modell ihrer Tabelle → Undo."""
+        m, j = self._model_col(col)
+        if m:
+            m.set_fit(j, fit)
+
+    def set_style(self, col, style: dict):
+        m, j = self._model_col(col)
+        if m:
+            m.set_style(j, style)
+
+    def show_settings(self):
+        """Zugeklapptes Einstellungs-Panel wieder aufziehen (Doppelklick in den Plot, Strg+Umschalt+A)."""
+        sizes = self.top.sizes()
+        if sizes[2] < 50:
+            sizes[2] = 260
+            sizes[1] = max(sizes[1] - 260, 100)
+            self.top.setSizes(sizes)
+            self.save_layout()
+        self.panel.edits["title"][0].setFocus()
 
     def _signals(self, tile: TableTile):
         m = tile.model
@@ -213,8 +237,8 @@ class MainWindow(QMainWindow):
         g = self.menuBar().addMenu("&Plot")
         g.addAction("Plot &anzeigen/ausblenden", QKeySequence("Ctrl+Shift+P"), lambda: self.page_view().toggle_plot())
         g.addAction("Achsen &tauschen x↔y", QKeySequence("Ctrl+Shift+X"), lambda: self.page_view().plot.swap())
-        g.addAction("A&chsen && Beschriftung …", QKeySequence("Ctrl+Shift+A"),
-                    lambda: self.page_view().plot.edit_axes())
+        g.addAction("&Einstellungen (Achsen, Fits)", QKeySequence("Ctrl+Shift+A"),
+                    lambda: self.page_view().show_settings())
         g.addAction("&Exportieren …", QKeySequence("Ctrl+E"), lambda: self.page_view().plot.export())
         g.addAction("&Python-Skript exportieren …", self.export_script)
         g.addAction("&Fit …", QKeySequence("Ctrl+Shift+G"),
@@ -319,6 +343,7 @@ class MainWindow(QMainWindow):
 
     def _page_view(self, p: Page) -> PageView:
         pv = PageView(p, self.project, self.stack)
+        pv.panel.after_style = self.redraw_all
         pv.changed.connect(self._changed)
         return pv
 

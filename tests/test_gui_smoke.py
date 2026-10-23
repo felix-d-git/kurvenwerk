@@ -119,3 +119,35 @@ def test_selection_stats_and_fit_report():
     d = FitDialog(plot.series(m.table)[0], v)
     d.preview()
     assert "R²" in d.msg.text() and "adj. R²" in d.msg.text()
+
+
+def test_panel_fit_formula_and_axes():
+    w = MainWindow()
+    pv = w.page_view()
+    m = pv.tiles[0].model
+    m.set_cells({(r, c): float(r + 1 if c == 0 else 2 * (r + 1) ** 2 + 3) for r in range(4) for c in range(2)}, "Werte")
+    app.processEvents()
+    row = pv.panel.rows[0]
+    row.formula.setText("a*x^2 + b")
+    assert "Parameter: a, b" in row.result.text()
+    row.commit()
+    app.processEvents()
+    assert m.table.columns[1].fit == {"formula": "a*x^2 + b"} and "a = 2" in pv.panel.rows[0].result.text()
+    pv.panel.rows[0].line.setChecked(True)
+    assert m.table.columns[1].fit == {"formula": "a*x + b"}
+    w.stack.undo()
+    w.stack.undo()
+    app.processEvents()
+    assert m.table.columns[1].fit == {} and pv.panel.rows[0].result.text() == "kein Fit"
+    e = pv.panel.edits["xmax"][0]
+    e.setText("abc")
+    pv.panel.commit("xmax")
+    assert pv.page.plot == {} and pv.panel.msg.text()
+    e.setText("10")
+    pv.panel.commit("xmax")
+    pv.panel.checks["ylog"].setChecked(True)
+    assert pv.page.plot == {"xmax": 10.0, "ylog": True}
+    pv.panel.checks["grid"].setChecked(not pv.panel.checks["grid"].isChecked())
+    assert "grid" in w.project.style and w.stack.undo() is None and w.project.style == {}
+    pv.panel.checks["grid"].setChecked(False)
+    assert not pv.plot.canvas.figure.axes[0].xaxis.get_gridlines()[0].get_visible()

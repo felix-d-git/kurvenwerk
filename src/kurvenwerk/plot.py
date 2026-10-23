@@ -162,10 +162,10 @@ def draw(fig: Figure, page: Page, style: dict) -> list[tuple]:
         ax.tick_params(labelbottom=False)
         rax.axhline(0, color="0.4", linewidth=st["linewidth"] * 0.8)
         rax.set_ylabel("Residuen", fontdict=rc)
-        rax.grid(bool(st["grid"]), alpha=0.3)
     else:
         ax, rax = fig.add_subplot(), None
-    ax.grid(bool(st["grid"]), alpha=0.3)
+    for a in filter(None, (ax, rax) if st["grid"] else ()):  # grid(False, alpha=…) schaltet es trotzdem ein
+        a.grid(True, alpha=0.3)
     has2 = any({**SERIES, **s.ycol.style}["axis"] == "y2" for s in all_s)
     ax2 = (ax.twiny() if pl["swap"] else ax.twinx()) if has2 else None
     names = {"x": [], "y": [], "y2": []}

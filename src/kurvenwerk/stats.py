@@ -38,6 +38,17 @@ def summary(d: dict, rounded=True, tex=False, unit="", pct=False) -> str:
     return "  ·  ".join(f"{lt} = {fmt(v, e, rounded, False, u, pct)}" for lt, _, v, e, u in rows if np.isfinite(v))
 
 
+def fit_short(r, rounded=True, pct=False) -> str:
+    """Kurzergebnis fürs Panel: je Parameter eine Zeile, dazu χ²/ndf (gewichtet) bzw. R²."""
+    lines = [f"{n} = {fmt(v, e if fr else None, rounded, False, pct=pct)}" + ("" if fr else " (fix)")
+             for n, v, e, fr in zip(r.params, r.values, r.errors, r.free)]
+    if r.absolute and r.ndf:
+        lines.append(f"χ²/ndf = {r.chi2 / r.ndf:.3g}")
+    elif np.isfinite(r.r2):
+        lines.append(f"R² = {r.r2:.4g}")
+    return "\n".join(lines)
+
+
 def fit_report(r, rounded=True, tex=False, pct=False) -> str:
     """Parameter ± Fehler, Güte und (nur Text) Kovarianz-/Korrelationsmatrix eines fit.Result."""
     lines = []

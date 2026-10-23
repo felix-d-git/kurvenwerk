@@ -4,7 +4,7 @@ import math
 import numpy as np
 
 from kurvenwerk import fit as fitting
-from kurvenwerk.stats import describe, fit_report, summary
+from kurvenwerk.stats import describe, fit_report, fit_short, summary
 
 
 def numacc(base: float, step: float) -> np.ndarray:
@@ -57,3 +57,9 @@ def test_fit_goodness_weighted_p():
     c = 3.6
     assert math.isclose(r.p, math.erfc(math.sqrt(c / 2)) + math.sqrt(2 * c / math.pi) * math.exp(-c / 2))
     assert "χ²/ndf = 1.2" in fit_report(r) and r"$a$ = \num{0.8 \pm 0.4}" in fit_report(r, tex=True)
+
+
+def test_fit_short():
+    t = fit_short(fitting.fit("a*x + b", X, Y)).splitlines()
+    assert t[0] == "a = 0.8 ± 0.4" and t[-1] == "R² = 0.64" and len(t) == 3
+    assert fit_short(fitting.fit("a*x + b", X, Y, dy=np.ones(5))).endswith("χ²/ndf = 1.2")
