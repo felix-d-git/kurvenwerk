@@ -15,7 +15,7 @@ dependencies = [
     "numpy>=2.0",
     "scipy>=1.13",
     "sympy>=1.13",
-    "antlr4-python3-runtime==4.11.*",
+    "antlr4-python3-runtime>=4.11,<4.14",
     "openpyxl>=3.1",
 ]
 
