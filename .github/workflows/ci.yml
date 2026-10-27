@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Windows wie release.yml: PySide6 laeuft dort offscreen ohne Zusatzpakete
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten
+        run: pip install -e . pytest -c packaging/requirements-release.txt
+
+      - name: Lizenz-Check
+        run: python scripts/check_licenses.py
+
+      - name: Tests
+        run: python -m pytest -q
