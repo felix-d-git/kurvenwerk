@@ -18,7 +18,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL = ROOT / ".privacy-patterns.txt"
 
-MAIL = r"[\w.+-]+@(?!users\.noreply\.github\.com|anthropic\.com|example\.(?:com|org))[\w-]+\.[\w.]+"
+# github.com: Bot-Adressen wie dependabot[bot] <support@github.com> im Signed-off-by
+MAIL = r"[\w.+-]+@(?!users\.noreply\.github\.com|github\.com\b|anthropic\.com|example\.(?:com|org))[\w-]+\.[\w.]+"
 KEY = r"-----BEGIN [A-Z ]*PRIVATE KEY-----"
 GENERIC = [
     r"[A-Za-z]:[\\/]+Users[\\/]++(?!runneradmin\b)",  # Windows-Nutzerpfade
