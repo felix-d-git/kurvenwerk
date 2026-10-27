@@ -21,8 +21,9 @@ Formeln aus Nutzereingaben laufen ausschließlich über sympy (`parse_expr` mit 
 
 ## 4. Rechtlich sauber
 Kein übernommener Fremdcode. Neue Abhängigkeiten nur bei echtem Komplexitätsgewinn und nur
-MIT/BSD/Apache-2.0. Bewusste Ausnahme: PySide6 (LGPL-3.0) — deshalb One-Folder-Build,
-Qt-DLLs bleiben austauschbar.
+MIT/BSD/Apache-2.0. Bewusste Ausnahme: PySide6-Essentials (LGPL-3.0) — deshalb One-Folder-Build,
+Qt-DLLs bleiben austauschbar; nie das Metapaket `PySide6` (zieht GPL-only-Module).
+`python scripts/check_licenses.py` muss grün sein.
 → **Woher stammt dieser Code, und was hängt lizenzrechtlich daran?**
 
 ## 5. Eigenes Design
