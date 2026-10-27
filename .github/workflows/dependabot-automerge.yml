@@ -1,0 +1,46 @@
+# Standard A: Dependabot-PRs (patch/minor) automatisch squash-mergen - erst wenn ALLE Checks des
+# Head-Commits abgeschlossen und grün sind. Majors bleiben offen (stehen im Commit-Text als semver-major).
+# Trigger pull_request statt workflow_run: bei workflow_run aus Dependabot ist GITHUB_TOKEN immer
+# read-only (403), bei pull_request hebt der permissions-Block ihn an. Der Job wartet daher selbst
+# auf die übrigen Checks (Name des eigenen Checks: automerge).
+name: Dependabot automerge
+on: pull_request
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+  actions: write
+jobs:
+  automerge:
+    if: github.actor == 'dependabot[bot]' && startsWith(github.head_ref, 'dependabot/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if gh pr view "$PR" --json commits -q '.commits[].messageBody' | grep -q semver-major; then
+            echo "Major-Update -> bleibt offen"; exit 0
+          fi
+          # Alle anderen Checks (alle Workflows + externe Status) auf genau diesem Commit: fertig und grün?
+          for i in $(seq 120); do
+            sleep 20
+            runs=$(gh api "repos/$GH_REPO/commits/$SHA/check-runs?per_page=100" -q '[.check_runs[] | select(.name != "automerge")]')
+            total=$(jq length <<< "$runs")
+            pending=$(jq '[.[] | select(.status != "completed")] | length' <<< "$runs")
+            red=$(jq '[.[] | select(.status == "completed" and (.conclusion | IN("success","skipped","neutral") | not))] | length' <<< "$runs")
+            state=$(gh api "repos/$GH_REPO/commits/$SHA/status" -q '.state + " " + (.total_count|tostring)')
+            [ "$red" = 0 ] || { echo "$red Checks rot -> kein Merge"; exit 0; }
+            case "$state" in failure*|error*) echo "Status $state -> kein Merge"; exit 0;; esac
+            if [ "$total" -gt 0 ] && [ "$pending" = 0 ] && case "$state" in success*|"pending 0") true;; *) false;; esac; then
+              gh pr merge "$PR" --squash --delete-branch --match-head-commit "$SHA"
+              # Sofort releasen statt bis 00:30 warten: der Pi-Watchdog installiert es binnen einer Stunde.
+              gh workflow run auto-release.yml; exit 0
+            fi
+            echo "$pending/$total Checks offen, Status $state -> warten"
+          done
+          echo "Zeitlimit -> kein Merge"

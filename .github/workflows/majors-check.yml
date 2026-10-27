@@ -1,0 +1,30 @@
+# Standard A: wöchentlich Majors prüfen (check-majors.py) -> ein Issue "Major-Updates verfügbar",
+# aktualisiert bzw. geschlossen, sobald nichts mehr offen ist. So reicht `gh issue list` zum Sitzungsstart.
+name: Major-Check
+on:
+  schedule: [{cron: "0 5 * * 1"}]
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  majors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: pip braucht ein .venv pro requirements.txt
+        run: |
+          find . -name requirements.txt -not -path "*/node_modules/*" -not -path "*/.venv/*" | while read -r f; do
+            d=$(dirname "$f"); python3 -m venv "$d/.venv" && "$d/.venv/bin/pip" install -q -r "$f" || echo "pip install $f fehlgeschlagen"
+          done
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 .github/scripts/check-majors.py . | tee majors.txt
+          t="Major-Updates verfügbar"
+          num=$(gh issue list --state open --search "in:title \"$t\"" --json number -q '.[0].number')
+          if grep -q '↑' majors.txt; then
+            if [ -n "$num" ]; then gh issue edit "$num" --body-file majors.txt; else gh issue create --title "$t" --body-file majors.txt; fi
+          elif [ -n "$num" ]; then
+            gh issue close "$num" -c "Keine Majors mehr offen."
+          fi
