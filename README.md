@@ -35,10 +35,14 @@ Releases baut GitHub Actions automatisch beim Push eines Tags `v*`.
 ## Lizenz
 
 MIT, siehe [LICENSE](LICENSE). Verwendete Bibliotheken behalten ihre eigenen Lizenzen
-(u.a. PySide6/Qt: LGPL-3.0, Matplotlib, NumPy, SciPy, SymPy: BSD-artig).
+(u.a. PySide6/Qt: LGPL-3.0; Matplotlib: PSF-basierte Matplotlib-Lizenz; NumPy, SciPy, SymPy: BSD-3-Clause).
 Gebündelte Schriften Manrope und IBM Plex Mono: SIL Open Font License 1.1,
-siehe `src/kurvenwerk/style/fonts/OFL-*.txt`.
+siehe `src/kurvenwerk/style/fonts/OFL-*.txt`. Herkunft aller Assets: [ASSETS.md](src/kurvenwerk/style/ASSETS.md).
 
 Das Release-ZIP enthält `THIRD_PARTY.txt` und unter `licenses\` die Lizenztexte aller gebündelten
-Pakete. Die Qt-/PySide6-Bibliotheken liegen als einzelne, austauschbare Dateien in
-`_internal\PySide6\` und `_internal\shiboken6\` (LGPL-3.0).
+Komponenten (inkl. Qt-Drittkomponenten, Python, PyInstaller). Die Qt-/PySide6-Bibliotheken liegen als
+einzelne, austauschbare Dateien in `_internal\PySide6\` und `_internal\shiboken6\` (LGPL-3.0).
+Ausgeliefert werden nur LGPL-Qt-Module (`PySide6-Essentials`), keine GPL-only-Module.
+
+Neue Abhängigkeiten prüft `python scripts/check_licenses.py` (läuft in CI und vor jedem Release,
+das Release enthält zusätzlich eine CycloneDX-SBOM).

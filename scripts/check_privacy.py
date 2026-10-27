@@ -3,7 +3,7 @@
 Prüft
   1. alle getrackten + gestagten Dateien (Inhalt + Pfad),
   2. die komplette Git-History (alle Blobs, Commit-Messages, Autor/Committer),
-  3. optional Verzeichnisse/ZIPs (Build-Artefakte): --extra dist/ Kurvenwerk.zip
+  3. optional Verzeichnisse/ZIPs (Build-Artefakte, SBOM): --extra dist/ Kurvenwerk.zip bom.json
 
 Muster = generische Regexe hier + private Begriffe aus `.privacy-patterns.txt`
 (gitignored, eine Regex pro Zeile, # = Kommentar). Exit 1 bei Treffer.
@@ -30,6 +30,9 @@ GENERIC = [
     r"(?i)\b(password|passwort|secret|api_key|token)\s*[:=]\s*['\"][^'\"\n]{6,}",
 ]
 ALLOWED_AUTHOR = re.compile(r"(@users\.noreply\.github\.com|noreply@anthropic\.com|noreply@github\.com)$")
+# Unveränderte Fremd-Lizenztexte: Copyright-Hinweise samt Autoren-Mail dürfen nicht gekürzt werden.
+# Dort gelten die Artefakt-Regeln (keine generische Mail-Regel, private Muster weiterhin aktiv).
+THIRD_PARTY_TEXTS = "packaging/licenses/"
 SKIP_SUFFIX = {".png", ".ico", ".ttf", ".otf", ".woff", ".woff2", ".pdf", ".dll", ".pyd", ".exe", ".so"}
 
 # Build-Artefakte (--extra) enthalten Fremd-Binärdateien. Dort gilt:
@@ -142,8 +145,12 @@ def check_path(label, data, rx, hits, on_disk=None):
 
 def main():
     rx = patterns()
+    rx_art = patterns(artifact=True)
     hits = []
     self_name = "scripts/check_privacy.py"
+
+    def rx_for(path):
+        return rx_art if path.startswith(THIRD_PARTY_TEXTS) else rx
 
     # 1. Arbeitsstand (getrackt + gestagt)
     files = set(git("ls-files", "-z").decode().split("\0")) | set(
@@ -151,7 +158,7 @@ def main():
     for f in sorted(x for x in files if x and x != self_name):
         p = ROOT / f
         if p.is_file():
-            check_text(f, p.read_bytes(), rx, hits)
+            check_text(f, p.read_bytes(), rx_for(f), hits)
 
     # 2. History: alle Blobs aller Commits, Messages, Identitäten
     if git("rev-list", "--all").strip():
@@ -159,7 +166,7 @@ def main():
             parts = line.split(" ", 1)
             if len(parts) == 2 and parts[1] != self_name:
                 if git("cat-file", "-t", parts[0]).strip() == b"blob":
-                    check_text(f"history:{parts[1]}", git("cat-file", "-p", parts[0]), rx, hits)
+                    check_text(f"history:{parts[1]}", git("cat-file", "-p", parts[0]), rx_for(parts[1]), hits)
         log = git("log", "--all", "--format=%H%x00%an%x00%ae%x00%cn%x00%ce%x00%B%x1e").decode()
         for entry in filter(str.strip, log.split("\x1e")):
             h, an, ae, cn, ce, body = entry.strip().split("\0", 5)
@@ -169,7 +176,6 @@ def main():
             scan(f"commit {h[:8]} meta", f"{an}\n{cn}\n{body}", rx, hits)
 
     # 3. Zusätzliche Pfade (Build-Ordner, Release-ZIP)
-    rx_art = patterns(artifact=True)
     for extra in sys.argv[sys.argv.index("--extra") + 1:] if "--extra" in sys.argv else []:
         p = Path(extra)
         if p.is_dir():
@@ -180,8 +186,10 @@ def main():
             with zipfile.ZipFile(p) as z:
                 for n in z.namelist():
                     check_path(f"{p.name}!{n}", z.read(n), rx_art, hits)
+        elif p.is_file():  # weitere Release-Dateien (SBOM: purls wie pkg:pypi/x@1.0 sind keine Mails)
+            check_path(p.name, p.read_bytes(), rx_art, hits, on_disk=p)
         else:
-            sys.exit(f"FEHLER: --extra {extra} ist weder Ordner noch .zip.")
+            sys.exit(f"FEHLER: --extra {extra} fehlt.")
 
     if hits:
         print("DATENSCHUTZ-CHECK FEHLGESCHLAGEN:")

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,10 +7,11 @@ name = "kurvenwerk"
 version = "0.1.0"
 description = "Messwerte erfassen, auswerten, fitten und plotten"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE", "src/kurvenwerk/style/fonts/OFL-*.txt"]
 requires-python = ">=3.12"
 dependencies = [
-    "PySide6>=6.7",
+    "PySide6-Essentials>=6.7",  # nicht PySide6: zieht Addons mit GPL-only-Modulen (#5)
     "matplotlib>=3.9",
     "numpy>=2.0",
     "scipy>=1.13",

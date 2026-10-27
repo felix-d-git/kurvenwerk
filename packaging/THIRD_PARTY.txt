@@ -1,14 +1,23 @@
 Kurvenwerk — Lizenzen der mitgelieferten Komponenten
 =====================================================
 
-Kurvenwerk selbst: MIT, siehe LICENSE.
+Kurvenwerk selbst: MIT, siehe LICENSE.txt. Die MIT-Lizenz gilt nur für den Kurvenwerk-Quellcode.
+Alle mitgelieferten Komponenten Dritter unterliegen ihren eigenen, unten und unter licenses/
+genannten Lizenzen.
 
-Qt for Python (PySide6, Shiboken6) und Qt 6
--------------------------------------------
-Lizenz: GNU Lesser General Public License v3 (LGPL-3.0), siehe
-licenses/LGPL-3.0.txt und licenses/GPL-3.0.txt.
-Quelltext: https://code.qt.io/cgit/pyside/pyside-setup.git und https://download.qt.io/official_releases/qt/
-Verwendete Version: siehe Ordnername licenses/PySide6-<version>/.
+Qt for Python (PySide6-Essentials, Shiboken6) und Qt @QT_VERSION@
+-----------------------------------------------------------------
+Lizenz: GNU Lesser General Public License v3 (LGPL-3.0-only), siehe licenses/LGPL-3.0.txt
+und licenses/GPL-3.0.txt. Ausgeliefert werden nur Qt-Module unter LGPL-3.0
+(QtCore, QtGui, QtWidgets, QtSvg und deren Plugins).
+
+Quelltext genau dieser Version:
+  PySide6/Shiboken6: https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-@QT_VERSION@-src/
+                     https://code.qt.io/cgit/pyside/pyside-setup.git/tag/?h=v@QT_VERSION@
+  Qt:                https://download.qt.io/official_releases/qt/@QT_SERIES@/@QT_VERSION@/single/
+                     https://code.qt.io/cgit/qt/qtbase.git/tag/?h=v@QT_VERSION@ (ebenso qtsvg, qtimageformats)
+Auf Anfrage über den Issue-Tracker des Projekts stellen wir diesen Quelltext für mindestens
+drei Jahre nach dem jeweiligen Release bereit.
 
 Austauschbarkeit: Kurvenwerk wird bewusst als Ordner (nicht als Einzel-.exe) ausgeliefert.
 Die Qt- und PySide6-Bibliotheken liegen unverändert als eigene Dateien unter
@@ -16,17 +25,51 @@ _internal/PySide6/ (z.B. Qt6Core.dll, Qt6Gui.dll, Qt6Widgets.dll, QtCore.pyd) un
 _internal/shiboken6/. Sie können durch eigene, ABI-kompatible Builds derselben
 Qt-/PySide6-Version ersetzt werden; Kurvenwerk lädt sie beim Start dynamisch.
 
+Qt enthält Komponenten Dritter (u.a. PCRE2, HarfBuzz, FreeType, libpng, libjpeg-turbo, zlib,
+libtiff, libwebp, Unicode-Daten), siehe licenses/Qt-ThirdParty.txt.
+This software is based in part on the work of the Independent JPEG Group.
+Portions of this software are copyright © The FreeType Project (www.freetype.org).
+All rights reserved.
+
 Weitere Python-Bibliotheken
 ---------------------------
-Die Lizenztexte aller gebündelten Pakete liegen unter licenses/<Paket>-<version>/, u.a.:
-Matplotlib (PSF-artig/BSD), NumPy (BSD-3), SciPy (BSD-3), SymPy (BSD-3), mpmath (BSD-3),
-openpyxl (MIT), et_xmlfile (MIT), Pillow (MIT-CMU), contourpy (BSD-3), kiwisolver (BSD-3),
-cycler (BSD-3), fonttools (MIT), pyparsing (MIT), python-dateutil (Apache-2.0/BSD-3), six (MIT),
-packaging (Apache-2.0/BSD-2).
-ANTLR 4 Python-Runtime (antlr4-python3-runtime): BSD-3-Clause, https://github.com/antlr/antlr4/blob/master/LICENSE.txt
-Python-Laufzeit: PSF License, siehe licenses/Python/LICENSE.txt.
+Die Lizenztexte aller gebündelten Pakete liegen unter licenses/<Paket>-<version>/:
+Matplotlib (Matplotlib-Lizenz, PSF-basiert), NumPy (BSD-3-Clause u.a.), SciPy (BSD-3-Clause),
+SymPy (BSD-3-Clause), mpmath (BSD-3-Clause), openpyxl (MIT), et_xmlfile (MIT),
+Pillow (MIT-CMU), contourpy (BSD-3-Clause), kiwisolver (BSD-3-Clause), cycler (BSD-3-Clause),
+fonttools (MIT), pyparsing (MIT), python-dateutil (Apache-2.0 oder BSD-3-Clause), six (MIT),
+tzdata (Apache-2.0), packaging (Apache-2.0 oder BSD-2-Clause).
+ANTLR 4 Python-Runtime (antlr4-python3-runtime): BSD-3-Clause,
+siehe licenses/antlr4-python3-runtime/LICENSE.txt.
+
+In diesen Paketen enthaltene Komponenten (Lizenztexte jeweils in deren LICENSE-Datei):
+- NumPy und SciPy: OpenBLAS (BSD-3-Clause), LAPACK (BSD-3-Clause-Open-MPI) und die
+  GCC-Laufzeit (GPL-3.0-or-later WITH GCC-exception-3.1).
+- Matplotlib: Schriften DejaVu (Bitstream Vera License), STIX (OFL-1.1) und
+  Computer Modern/BaKoMa (BaKoMa-Lizenz), siehe licenses/matplotlib-<version>/.
+- Pillow: libjpeg-turbo, libpng, FreeType, libwebp, libavif, lcms2, OpenJPEG, HarfBuzz,
+  zlib-ng u.a., siehe licenses/pillow-<version>/.
+
+Python-Laufzeit
+---------------
+PSF License und Lizenzen der darin enthaltenen Bibliotheken (u.a. OpenSSL, bzip2, libffi),
+siehe licenses/Python/LICENSE.txt.
+
+PyInstaller (in Kurvenwerk.exe)
+-------------------------------
+Bootloader und Lademodule (pyiboot*, pyimod*): GPL-2.0-or-later mit PyInstaller-Bootloader-
+Exception, die die Weitergabe in beliebig lizenzierten Programmen erlaubt.
+Runtime-Hooks (pyi_rth_*): Apache License 2.0, siehe licenses/Apache-2.0.txt.
+Details: licenses/pyinstaller-<version>/. Quelltext: https://github.com/pyinstaller/pyinstaller
+
+Microsoft Visual C++ Runtime / Universal CRT
+--------------------------------------------
+VCRUNTIME140*.dll, MSVCP140*.dll, ucrtbase.dll und api-ms-win-*.dll sind Microsoft
+Distributable Code (Copyright Microsoft Corporation). Sie werden ausschließlich als Teil
+von Kurvenwerk weitergegeben und dürfen nicht getrennt davon weiterverbreitet werden.
+Die MIT-Lizenz von Kurvenwerk gilt nicht für diese Dateien.
 
 Schriften
 ---------
-Manrope und IBM Plex Mono: SIL Open Font License 1.1, siehe
+Manrope und IBM Plex Mono (unverändert): SIL Open Font License 1.1, siehe
 _internal/kurvenwerk/style/fonts/OFL-*.txt.
