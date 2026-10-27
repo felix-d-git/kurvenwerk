@@ -1,5 +1,6 @@
 # Standard A: seit dem letzten Release nur Dependabot-Commits -> Patch-Release (der Pi zieht es nachts).
 # Sobald auch eigene Commits dabei sind, wird nicht automatisch released.
+# Vor dem Tag läuft das Lizenz-Gate: neue/geänderte Lizenzen gehen nie ungeprüft in ein Release.
 name: Auto-Release
 on:
   schedule: [{cron: "30 0 * * *"}]
@@ -14,7 +15,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - env:
+      - id: next
+        env:
           GH_TOKEN: ${{ github.token }}
         run: |
           last=$(gh release view --json tagName -q .tagName) || { echo "noch kein Release"; exit 0; }
@@ -22,6 +24,20 @@ jobs:
           [ -n "$authors" ] || { echo "nichts Neues seit $last"; exit 0; }
           [ "$authors" = "dependabot[bot]" ] || { echo "eigene Commits seit $last -> manuelles Release"; exit 0; }
           IFS=. read -r ma mi pa <<< "${last#v}"
-          next="v$ma.$mi.$((${pa%%[!0-9]*}+1))"
-          git tag "$next" "$GITHUB_SHA" && git push origin "$next"
-          gh workflow run release.yml --ref "$next"
+          echo "tag=v$ma.$mi.$((${pa%%[!0-9]*}+1))" >> "$GITHUB_OUTPUT"
+      - if: steps.next.outputs.tag
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: steps.next.outputs.tag
+        name: Lizenz-Check
+        run: |
+          pip install -e . -c packaging/requirements-release.txt
+          python scripts/check_licenses.py
+      - if: steps.next.outputs.tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT: ${{ steps.next.outputs.tag }}
+        run: |
+          git tag "$NEXT" "$GITHUB_SHA" && git push origin "$NEXT"
+          gh workflow run release.yml --ref "$NEXT"

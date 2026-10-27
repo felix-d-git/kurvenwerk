@@ -21,7 +21,10 @@ jobs:
           python-version: "3.12"
 
       - name: Abhängigkeiten
-        run: pip install -e . pytest
+        run: pip install -e . pytest -c packaging/requirements-release.txt
+
+      - name: Lizenz-Check
+        run: python scripts/check_licenses.py
 
       - name: Tests
         run: python -m pytest -q

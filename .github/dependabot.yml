@@ -5,6 +5,7 @@ updates:
   - package-ecosystem: "pip"
     directories:
       - "/"
+      - "/packaging"  # requirements-release.txt: feste Versionen für CI/Release
     schedule:
       interval: "weekly"
     groups:

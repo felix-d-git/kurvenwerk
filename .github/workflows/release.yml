@@ -26,7 +26,13 @@ jobs:
           python-version: "3.12"
 
       - name: Abhängigkeiten
-        run: pip install -e . pyinstaller==6.22.3 pytest
+        run: pip install -e . pyinstaller pytest -c packaging/requirements-release.txt
+
+      - name: Lizenz-Check + SBOM
+        run: |
+          $v = "$env:GITHUB_REF_NAME".TrimStart("v") -replace '[\\/]', '-'
+          python scripts/check_licenses.py --sbom "Kurvenwerk-$v.cdx.json"
+          "SBOM=Kurvenwerk-$v.cdx.json" >> $env:GITHUB_ENV
 
       - name: Tests
         run: python -m pytest -q
@@ -34,15 +40,15 @@ jobs:
       - name: Build
         run: |
           pyinstaller packaging/kurvenwerk.spec --noconfirm
-          $v = "$env:GITHUB_REF_NAME".TrimStart("v")
+          $v = "$env:GITHUB_REF_NAME".TrimStart("v") -replace '[\\/]', '-'
           Compress-Archive -Path dist/Kurvenwerk -DestinationPath "Kurvenwerk-$v.zip"
           "ZIP=Kurvenwerk-$v.zip" >> $env:GITHUB_ENV
 
       - name: Datenschutz-Check (Repo + Artefakte)
-        run: python scripts/check_privacy.py --extra dist/Kurvenwerk $env:ZIP
+        run: python scripts/check_privacy.py --extra dist/Kurvenwerk $env:ZIP $env:SBOM
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:GITHUB_REF_NAME $env:ZIP --title "Kurvenwerk $env:GITHUB_REF_NAME" --generate-notes
+        run: gh release create $env:GITHUB_REF_NAME $env:ZIP $env:SBOM --title "Kurvenwerk $env:GITHUB_REF_NAME" --generate-notes
