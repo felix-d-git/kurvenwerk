@@ -1,23 +1,28 @@
-"""Hauptfenster: Seiten-Tabs, je Seite Splitter Tabellen | Plot, Menüs, ein Undo-Stack pro Projekt."""
+"""Hauptfenster: Seiten-Tabs, je Seite vierteiliges Splitter-Layout, Menüs, ein Undo-Stack pro Projekt."""
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QActionGroup, QKeySequence, QUndoStack
-from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QMainWindow,
-                               QMenu, QMessageBox, QSplitter, QTabWidget, QToolButton, QWidget)
+from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QInputDialog, QMainWindow,
+                               QMessageBox, QPlainTextEdit, QSplitter, QTabWidget, QToolButton, QVBoxLayout,
+                               QWidget)
 
 from . import export
+from .evaluation import EvalBar
 from .model import Page, Project, Table
+from .panel import SettingsPanel
 from .plotview import AttrCmd, PlotPanel, edit_style
-from .stats import summary
-from .tables import AddTableCmd, TableTile, TableView, paste_decimal, result_opts, settings
+from .tables import AddTableCmd, RemoveTableCmd, TableTile, TableView, paste_decimal, result_opts, settings
 
 FILTER = "Kurvenwerk-Projekt (*.kwproj);;JSON (*.json)"
 
 
 class PageView(QSplitter):
+    """Vierteilig: oben Tabellen | Plot | Einstellungen, unten Auswertung; alle Bereiche zuklappbar."""
+    changed = Signal()  # Beschreibung geändert (nicht im Undo-Stack)
+
     def __init__(self, page: Page, project: Project, stack: QUndoStack):
-        super().__init__(Qt.Horizontal)
+        super().__init__(Qt.Vertical)
         self.setObjectName("page")
         self.page, self.stack = page, stack
         tables = QWidget()
@@ -29,20 +34,80 @@ class PageView(QSplitter):
         self.tiles: list[TableTile] = []
         self.plot = PlotPanel(page, project, stack)
         self.plot.set_fit = self.set_fit
+        self.evaluation = EvalBar(page)
         for t in page.tables:
             self.insert_tile(TableTile(t, stack))
-        self.addWidget(tables)
-        self.addWidget(self.plot)
+        self.description = QPlainTextEdit(page.description, placeholderText="Beschreibung der Seite (Freitext)")
+        self.description.textChanged.connect(self._description)
+        self.left = QSplitter(Qt.Vertical)
+        self.left.addWidget(tables)
+        self.left.addWidget(self.description)
+        self.left.setSizes([400, 100])
+        self.top = QSplitter(Qt.Horizontal)
+        self.top.addWidget(self.left)
+        self.top.addWidget(self.plot)
+        self.panel = SettingsPanel(page, project, stack, self.plot, self.set_fit, self.set_style)
+        self.top.addWidget(self.panel)
+        self.plot.on_dblclick = self.show_settings
+        self.top.setSizes([450, 550, 220])
+        self.addWidget(self.top)
+        self.addWidget(self.evaluation)
+        self.setSizes([560, 190])
+        for s in self.splitters().values():
+            s.setChildrenCollapsible(True)
+            s.setHandleWidth(6)
+            s.splitterMoved.connect(self.save_layout)
         self.plot.setVisible(page.show_plot)
-        self.setSizes([1, 1])
+
+    def splitters(self) -> dict[str, QSplitter]:
+        return {"main": self, "top": self.top, "left": self.left}
+
+    def save_layout(self):
+        for k, s in self.splitters().items():
+            settings().setValue(f"layout/{k}", s.saveState())
+
+    def restore_layout(self):
+        for k, s in self.splitters().items():
+            if (state := settings().value(f"layout/{k}")) is not None:
+                s.restoreState(state)
+        self.plot.setVisible(self.page.show_plot)  # restoreState setzt auch Sichtbarkeit
+
+    def showEvent(self, e):
+        self.restore_layout()  # jede Seite übernimmt beim Anzeigen das zuletzt gezogene Layout
+        super().showEvent(e)
+
+    def _description(self):
+        self.page.description = self.description.toPlainText()
+        self.changed.emit()
+
+    def _model_col(self, col):
+        """(Tabellenmodell, Spaltenindex) zum Spaltenobjekt aus Plot/Panel."""
+        for t in self.tiles:
+            j = next((j for j, c in enumerate(t.model.table.columns) if c is col), None)
+            if j is not None:
+                return t.model, j
+        return None, None
 
     def set_fit(self, col, fit: dict):
-        """Fit der Spalte (Objekt aus dem Plot) über das Modell ihrer Tabelle → Undo."""
-        for t in self.tiles:
-            cols = t.model.table.columns
-            j = next((j for j, c in enumerate(cols) if c is col), None)
-            if j is not None:
-                t.model.set_fit(j, fit)
+        """Fit der Spalte über das Modell ihrer Tabelle → Undo."""
+        m, j = self._model_col(col)
+        if m:
+            m.set_fit(j, fit)
+
+    def set_style(self, col, style: dict):
+        m, j = self._model_col(col)
+        if m:
+            m.set_style(j, style)
+
+    def show_settings(self):
+        """Zugeklapptes Einstellungs-Panel wieder aufziehen (Doppelklick in den Plot, Strg+Umschalt+A)."""
+        sizes = self.top.sizes()
+        if sizes[2] < 50:
+            sizes[2] = 260
+            sizes[1] = max(sizes[1] - 260, 100)
+            self.top.setSizes(sizes)
+            self.save_layout()
+        self.panel.edits["title"][0].setFocus()
 
     def _signals(self, tile: TableTile):
         m = tile.model
@@ -53,27 +118,41 @@ class PageView(QSplitter):
             self.plot.setVisible(self.page.show_plot)
         self.stack.push(AttrCmd(self.page, "show_plot", not self.page.show_plot, "Plot ein/aus", after))
 
-    def insert_tile(self, tile: TableTile):
-        self.row.insertWidget(len(self.tiles), tile, 1)
-        self.tiles.append(tile)
+    def insert_tile(self, tile: TableTile, i: int | None = None):
+        """Kachel (und ihre Tabelle in page.tables) an Stelle i, sonst ans Ende."""
+        i = len(self.tiles) if i is None else i
+        self.row.insertWidget(i, tile, 1)
+        self.tiles.insert(i, tile)
+        if not any(t is tile.model.table for t in self.page.tables):
+            self.page.tables.insert(i, tile.model.table)
         tile.view.tile.connect(lambda d, r, c, t=tile: self.jump(t, d, r, c))
+        tile.remove.connect(lambda t=tile: self.remove_table(t))
         for sig in self._signals(tile):
             sig.connect(self.plot.schedule)
+            sig.connect(self.evaluation.schedule)
         tile.show()
         self.plot.schedule()
+        self.evaluation.schedule()
 
     def remove_tile(self, tile: TableTile):
-        self.tiles.remove(tile)
+        i = self.tiles.index(tile)
+        del self.tiles[i], self.page.tables[i]
         tile.view.tile.disconnect()
+        tile.remove.disconnect()
         for sig in self._signals(tile):
             sig.disconnect(self.plot.schedule)
+            sig.disconnect(self.evaluation.schedule)
         self.plot.schedule()
+        self.evaluation.set_selection({"n": 0}, "")  # Auswahl gehörte evtl. zur entfernten Tabelle
         self.row.removeWidget(tile)
         tile.setParent(None)  # Objekt lebt im AddTableCmd weiter
 
     def add_table(self):
         self.stack.push(AddTableCmd(self, Table(f"Tabelle {len(self.page.tables) + 1}")))
         self.tiles[-1].view.setFocus()
+
+    def remove_table(self, tile: TableTile):
+        self.stack.push(RemoveTableCmd(self, tile))
 
     def jump(self, tile: TableTile, d: int, r: int, c: int):
         i = self.tiles.index(tile) + d
@@ -99,11 +178,6 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
         self.stack = QUndoStack(self)
         self.stack.indexChanged.connect(self._changed)
-        self.stats, self.stats_label = ({"n": 0}, ""), QLabel(textFormat=Qt.PlainText,
-                                                       textInteractionFlags=Qt.TextSelectableByMouse)
-        self.stats_label.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.stats_label.customContextMenuRequested.connect(lambda p: self.copy_menu().exec(self.cursor().pos()))
-        self.statusBar().addWidget(self.stats_label, 1)
 
         m = self.menuBar().addMenu("&Datei")
         for text, key, slot in [("&Neu", QKeySequence.New, self.new),
@@ -134,24 +208,32 @@ class MainWindow(QMainWindow):
         e.addSeparator()
         for text, key, default in [("Ergebnisse &DIN-runden", "results/din", True),
                                    ("Unsicherheit relativ in &%", "results/pct", False)]:
-            a = e.addAction(text, lambda on, k=key: (settings().setValue(k, on), self.show_stats(*self.stats)))
+            a = e.addAction(text, lambda on, k=key: (settings().setValue(k, on),
+                                                                   [self.tabs.widget(i).evaluation.schedule()
+                                                                    for i in range(self.tabs.count())]))
             a.setCheckable(True)
             a.setChecked(settings().value(key, default, type=bool))
-        e.addMenu(self.copy_menu())
+        c = e.addMenu("Ergebnisse &kopieren")
+        for text, tex in [("als &Text", False), ("als &siunitx", True)]:
+            c.addAction(text, lambda t=tex: self.page_view().evaluation.copy(t))
         t = self.menuBar().addMenu("&Tabelle")
         t.addAction("&Neue Tabelle", QKeySequence("Ctrl+Shift+T"), lambda: self.page_view().add_table())
+        t.addAction("Tabelle &löschen", lambda: (v := self.table_view()) and self.page_view().remove_table(
+            next(t for t in self.page_view().tiles if t.view is v)))
         t.addAction("&Y-Spalte hinzufügen", QKeySequence("Ctrl+Shift+Y"),
                     lambda: (v := self.table_view()) and v.model().add_y())
         t.addAction("Spalte &bearbeiten …", QKeySequence("Ctrl+Shift+E"),
                     lambda: (v := self.table_view()) and v.edit_column(v.currentIndex().column()))
+        t.addAction("Spalte lö&schen", lambda: (v := self.table_view()) and v.model().remove_column(
+            v.currentIndex().column()))
         t.addAction("Spalten&werte setzen …", QKeySequence("Ctrl+Shift+F"),
                     lambda: (v := self.table_view()) and v.set_values(v.currentIndex().column()))
         t.addAction("E&xportieren (CSV/xlsx/LaTeX) …", self.export_table)
         g = self.menuBar().addMenu("&Plot")
         g.addAction("Plot &anzeigen/ausblenden", QKeySequence("Ctrl+Shift+P"), lambda: self.page_view().toggle_plot())
         g.addAction("Achsen &tauschen x↔y", QKeySequence("Ctrl+Shift+X"), lambda: self.page_view().plot.swap())
-        g.addAction("A&chsen && Beschriftung …", QKeySequence("Ctrl+Shift+A"),
-                    lambda: self.page_view().plot.edit_axes())
+        g.addAction("&Einstellungen (Achsen, Fits)", QKeySequence("Ctrl+Shift+A"),
+                    lambda: self.page_view().show_settings())
         g.addAction("&Exportieren …", QKeySequence("Ctrl+E"), lambda: self.page_view().plot.export())
         g.addAction("&Python-Skript exportieren …", self.export_script)
         g.addAction("&Fit …", QKeySequence("Ctrl+Shift+G"),
@@ -167,15 +249,9 @@ class MainWindow(QMainWindow):
 
     # --- Statistik & Ausgabe ---
     def show_stats(self, d: dict, unit: str):
-        self.stats = (d, unit)
-        self.stats_label.setText(summary(d, unit=unit, **result_opts()))
-
-    def copy_menu(self) -> QMenu:
-        m = QMenu("Statistik &kopieren", self)
-        for text, tex in [("als &Text", False), ("als &siunitx", True)]:
-            m.addAction(text, lambda t=tex: QApplication.clipboard().setText(
-                summary(self.stats[0], unit=self.stats[1], tex=t, **result_opts())))
-        return m
+        """Statistik der Tabellenauswahl → Auswertungsleiste der aktuellen Seite."""
+        if pv := self.page_view():
+            pv.evaluation.set_selection(d, unit)
 
     def _save_name(self, title: str, filters: str) -> str:
         f, _ = QFileDialog.getSaveFileName(self, title, "", filters)
@@ -250,9 +326,15 @@ class MainWindow(QMainWindow):
             self.tabs.removeTab(0)
             w.deleteLater()
         for p in project.pages:
-            self.tabs.addTab(PageView(p, self.project, self.stack), p.title)
+            self.tabs.addTab(self._page_view(p), p.title)
         self.dirty = False
         self._update_title()
+
+    def _page_view(self, p: Page) -> PageView:
+        pv = PageView(p, self.project, self.stack)
+        pv.panel.after_style = self.redraw_all
+        pv.changed.connect(self._changed)
+        return pv
 
     def _changed(self):
         self.dirty = True
@@ -311,7 +393,7 @@ class MainWindow(QMainWindow):
     def add_page(self):
         p = Page(f"Seite {len(self.project.pages) + 1}")
         self.project.pages.append(p)
-        self.tabs.setCurrentIndex(self.tabs.addTab(PageView(p, self.project, self.stack), p.title))
+        self.tabs.setCurrentIndex(self.tabs.addTab(self._page_view(p), p.title))
         self._changed()
 
     def rename_page(self, i: int):
@@ -322,6 +404,7 @@ class MainWindow(QMainWindow):
         if ok and title.strip() and title.strip() != p.title:
             p.title = title.strip()
             self.tabs.setTabText(i, p.title)
+            self.tabs.widget(i).plot.redraw()  # Seitentitel über dem Plot
             self._changed()
 
     def delete_page(self, i: int):

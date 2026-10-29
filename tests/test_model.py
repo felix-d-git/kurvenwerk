@@ -9,7 +9,7 @@ def sample() -> Project:
     t = Table("Kennlinie", [
         Column("U", "mV", "X", [0.0, 1.5, None, 3.25]),
         Column("I", "µA", "Y", [0.1, 2.0, 2.9, 4.0], style={"color": "#ff0000", "axis": "y2"}),
-        Column("ΔI", "µA", "Δy", [0.05, 0.05, 0.05, 0.05]),
+        Column("u_I", "µA", "u_y", [0.05, 0.05, 0.05, 0.05]),
     ])
     return Project([Page("Aufgabe 1", [t, Table()], plot={"title": "$I(U)$", "xlog": True}),
                     Page("Aufgabe 2", [], show_plot=False)], style={"marker": "s"})
@@ -34,3 +34,25 @@ def test_rejects_newer_version():
 def test_rejects_unknown_role():
     with pytest.raises(ValueError):
         Column("x", "", "Z")
+
+
+def test_migrates_v4_without_description():
+    d = sample().to_dict()
+    d["version"] = 4
+    for p in d["pages"]:
+        del p["description"]
+    p = Project.from_dict(d)
+    assert p.pages[0].description == "" and p.pages[0].tables[0].name == "Kennlinie"
+    p.pages[1].description = "Messung bei 20 °C\nzweite Zeile"
+    assert Project.from_dict(p.to_dict()).pages[1].description == p.pages[1].description
+
+
+def test_migrates_v5_delta_to_u():
+    d = sample().to_dict()
+    d["version"] = 5
+    cols = d["pages"][0]["tables"][0]["columns"]
+    cols[2].update(name="ΔI", role="Δy")
+    cols.append({"name": "ΔP", "unit": "", "role": "Δy", "formula": "U*ΔI + I*ΔU", "gauss": False})
+    c = Project.from_dict(d).pages[0].tables[0].columns
+    assert (c[2].name, c[2].role) == ("u_I", "u_y")
+    assert (c[3].name, c[3].formula) == ("u_P", "U*u_I + I*u_U")

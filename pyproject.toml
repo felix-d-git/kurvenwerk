@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kurvenwerk"
-version = "0.1.0"
+version = "0.2.0"
 description = "Messwerte erfassen, auswerten, fitten und plotten"
 readme = "README.md"
 license = "MIT"
@@ -27,4 +27,4 @@ kurvenwerk = "kurvenwerk.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-kurvenwerk = ["style/fonts/*"]
+kurvenwerk = ["style/fonts/*", "style/logo.png"]

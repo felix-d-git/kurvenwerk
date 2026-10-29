@@ -35,3 +35,11 @@ def test_percent():
     assert fmt(2.0, 0.05, rounded=False, pct=True) == "2 ± 2.5 %"
     assert fmt(2.0, None, pct=True) == "2"
     assert fmt(0.0, 0.1, pct=True) == "0.00 ± 0.10"  # Wert 0 → absolut
+
+
+def test_parts():
+    from kurvenwerk.rounding import parts
+    assert parts(1.23456, 0.0123) == ("1.235", "0.013")
+    assert parts(2.0, 0.05, pct=True) == ("2.00", "2.5 %")
+    assert parts(2.0, 0.0) == ("2", "0")
+    assert parts(1.23e-7, 4e-9) == ("1.23e-7", "0.04e-7")

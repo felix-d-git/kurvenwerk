@@ -18,7 +18,7 @@ Y = [2.1, 3.9, 6.2, 7.8, 10.1]  # synthetisch, ≈ 2x
 def page(fit=None, **plot):
     t = Table("Mess:1", [Column("t", "s", "X", list(X)),
                          Column("U", "V", "Y", list(Y), fit=fit or {}),
-                         Column("ΔU", "V", "Δy", [0.1, 0.1, 0.2, 0.2, 0.3])])
+                         Column("u_U", "V", "u_y", [0.1, 0.1, 0.2, 0.2, 0.3])])
     return Page("Seite/1", [t], plot=plot)
 
 
@@ -28,7 +28,7 @@ def test_csv_roundtrip(tmp_path):
     export.write_csv(t, tmp_path / "a.csv")
     with open(tmp_path / "a.csv", encoding="utf-8", newline="") as f:
         r = list(csv.reader(f))
-    assert r[0] == ["t / s", "U / V", "ΔU / V"]
+    assert r[0] == ["t / s", "U / V", "u_U / V"]
     assert r[3] == ["3", "", "0.2"]
     assert float(r[5][1]) == 10.1
 
@@ -108,7 +108,7 @@ def test_series_style_no_errorbars_small_markers(tmp_path):
     ln = ax.get_lines()[0]
     assert ln.get_marker() == "." and ln.get_markersize() == 2.0 and ln.get_linestyle() == "-"
     src = export.python_script(p, {})
-    assert "dy = None" in src
+    assert "u_y = None" in src
     ln = _run(src, tmp_path).axes[0].get_lines()[0]
     assert ln.get_marker() == "." and ln.get_markersize() == 2.0
 
@@ -128,3 +128,8 @@ def test_fit_alpha_and_default_colors(tmp_path):
     plot.draw(fig, p, {"fit_alpha": 0.4})
     assert fig.axes[0].get_lines()[-1].get_alpha() == 1.0
     assert _run(export.python_script(p, {"fit_alpha": 0.4}), tmp_path).axes[0].get_lines()[-1].get_alpha() == 1.0
+
+
+def test_latex_u_header():
+    s = export.latex_table(Table("x", [Column("t", "s", "X", [1.0]), Column("u_q", "s", "u_y", [0.1])]))
+    assert r"{$u_{q}$ / \unit{s}}" in s  # ohne Partnerspalte → eigene Spalte

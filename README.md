@@ -1,3 +1,5 @@
+<img src="src/kurvenwerk/style/logo.png" alt="Kurvenwerk-Logo" width="96" align="right">
+
 # Kurvenwerk
 
 Desktop-Tool zum Erfassen, Auswerten und Plotten von Messwerten.

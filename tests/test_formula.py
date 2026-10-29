@@ -48,8 +48,8 @@ def test_number():
 
 
 def table():
-    return [Column("U", "V", "X", [2.0, 4.0, None]), Column("ΔU", "V", "Δx", [0.1, 0.1, 0.1]),
-            Column("I", "A", "Y", [3.0, 5.0, 1.0]), Column("ΔI", "A", "Δy", [0.2, 0.2, 0.2])]
+    return [Column("U", "V", "X", [2.0, 4.0, None]), Column("u_U", "V", "u_x", [0.1, 0.1, 0.1]),
+            Column("I", "A", "Y", [3.0, 5.0, 1.0]), Column("u_I", "A", "u_y", [0.2, 0.2, 0.2])]
 
 
 def test_gauss_product():
@@ -58,7 +58,7 @@ def test_gauss_product():
     assert recompute(cols) == {}
     p, dp = cols[4], cols[5]
     assert p.values == [6.0, 20.0, None]
-    assert (dp.name, dp.unit, dp.role) == ("ΔP", "W", "Δy")
+    assert (dp.name, dp.unit, dp.role) == ("u_P", "W", "u_y")
     assert dp.values[:2] == pytest.approx([0.5, math.sqrt(0.89)]) and dp.values[2] is None
 
 
@@ -70,8 +70,8 @@ def test_gauss_quotient_and_chain():
     assert recompute(cols) == {}
     by = {c.name: c for c in cols}
     assert by["R"].values[0] == pytest.approx(2 / 3)
-    assert by["ΔR"].values[0] == pytest.approx(1 / 18)
-    assert by["S"].values[0] == pytest.approx(2) and by["ΔS"].values[0] == pytest.approx(3 / 18)
+    assert by["u_R"].values[0] == pytest.approx(1 / 18)
+    assert by["S"].values[0] == pytest.approx(2) and by["u_S"].values[0] == pytest.approx(3 / 18)
 
 
 def test_gauss_nonlinear():
@@ -80,8 +80,8 @@ def test_gauss_nonlinear():
                       Column("g", "", "Y", formula="U^2*sin(I)", gauss=True)]
     assert recompute(cols) == {}
     by = {c.name: c for c in cols}
-    assert by["Δf"].values[0] == pytest.approx(0.05)
-    assert by["Δg"].values[0] == pytest.approx(math.hypot(4 * math.sin(3) * 0.1, 4 * math.cos(3) * 0.2))
+    assert by["u_f"].values[0] == pytest.approx(0.05)
+    assert by["u_g"].values[0] == pytest.approx(math.hypot(4 * math.sin(3) * 0.1, 4 * math.cos(3) * 0.2))
 
 
 def test_row_index_cycle_and_errors():

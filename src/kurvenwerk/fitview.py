@@ -24,6 +24,10 @@ def own_templates() -> dict:
         return {}
 
 
+def save_template(name: str, formula: str) -> None:
+    QSettings("Kurvenwerk", "Kurvenwerk").setValue(OWN, json.dumps({**own_templates(), name: formula}))
+
+
 def _num(t: str):
     return number(t) if t.strip() else None
 
@@ -182,8 +186,7 @@ class FitDialog(QDialog):
             return
         name, ok = QInputDialog.getText(self, "Vorlage speichern", "Name der Vorlage:")
         if ok and name.strip():
-            own = {**own_templates(), name.strip(): t}
-            QSettings("Kurvenwerk", "Kurvenwerk").setValue(OWN, json.dumps(own))
+            save_template(name.strip(), t)
             self.templates[name.strip()] = t
             if self.tpl.findText(name.strip()) < 0:
                 self.tpl.addItem(name.strip())

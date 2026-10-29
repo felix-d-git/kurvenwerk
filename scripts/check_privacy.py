@@ -48,7 +48,12 @@ ARTIFACT_ALLOW = re.compile("|".join([
     r"bombingmailto",                                   # Wortliste in Pillow/HarfBuzz
     r"@gmail\.com|_AT_gmail_DOT_com",                   # nur Domain: lokaler Teil wird weiter geprüft
     r"/home/(?:guido|user)\b",                         # Docstring-Beispiele in numpy
+    r"Felix Hanau",                                     # Fremd-Autor in Qt-Lizenzhinweisen
+    r"Email domain:\s+gmail\.com",                      # Qt-Lizenzhinweis, nur Domain
 ]))
+# Anzeigename des Maintainers in Commits, die GitHub selbst erstellt (Squash-Merge im Web);
+# ist ohnehin öffentlich im GitHub-Profil. Nur zusammen mit seiner noreply-Adresse ausgenommen.
+OWNER_MAIL = "+felix-d-git@users.noreply.github.com"
 
 
 def patterns(artifact=False):
@@ -150,8 +155,11 @@ def main():
     hits = []
     self_name = "scripts/check_privacy.py"
 
-    def rx_for(path):
-        return rx_art if path.startswith(THIRD_PARTY_TEXTS) else rx
+    def check_file(label, data, path=None):
+        if (path or label).startswith(THIRD_PARTY_TEXTS):
+            check_artifact(label, data, rx_art, hits)  # Fremdtexte: Artefakt-Regeln inkl. ARTIFACT_ALLOW
+        else:
+            check_text(label, data, rx, hits)
 
     # 1. Arbeitsstand (getrackt + gestagt)
     files = set(git("ls-files", "-z").decode().split("\0")) | set(
@@ -159,7 +167,7 @@ def main():
     for f in sorted(x for x in files if x and x != self_name):
         p = ROOT / f
         if p.is_file():
-            check_text(f, p.read_bytes(), rx_for(f), hits)
+            check_file(f, p.read_bytes())
 
     # 2. History: alle Blobs aller Commits, Messages, Identitäten
     if git("rev-list", "--all").strip():
@@ -167,14 +175,15 @@ def main():
             parts = line.split(" ", 1)
             if len(parts) == 2 and parts[1] != self_name:
                 if git("cat-file", "-t", parts[0]).strip() == b"blob":
-                    check_text(f"history:{parts[1]}", git("cat-file", "-p", parts[0]), rx_for(parts[1]), hits)
+                    check_file(f"history:{parts[1]}", git("cat-file", "-p", parts[0]), parts[1])
         log = git("log", "--all", "--format=%H%x00%an%x00%ae%x00%cn%x00%ce%x00%B%x1e").decode()
         for entry in filter(str.strip, log.split("\x1e")):
             h, an, ae, cn, ce, body = entry.strip().split("\0", 5)
             for mail in (ae, ce):
                 if not ALLOWED_AUTHOR.search(mail):
                     hits.append(f"commit {h[:8]}: Mail nicht noreply: {mail}")
-            scan(f"commit {h[:8]} meta", f"{an}\n{cn}\n{body}", rx, hits)
+            names = [n for n, m in ((an, ae), (cn, ce)) if not m.endswith(OWNER_MAIL)]
+            scan(f"commit {h[:8]} meta", "\n".join(names + [body]), rx, hits)
 
     # 3. Zusätzliche Pfade (Build-Ordner, Release-ZIP)
     for extra in sys.argv[sys.argv.index("--extra") + 1:] if "--extra" in sys.argv else []:

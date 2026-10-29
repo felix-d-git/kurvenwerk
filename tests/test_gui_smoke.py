@@ -39,6 +39,25 @@ def test_pages_sync(tmp_path, monkeypatch):
     assert Project.load(w.path) == w.project
 
 
+def test_layout_collapsible_and_remembered(tmp_path, monkeypatch):
+    from PySide6.QtCore import QSettings
+    from kurvenwerk import mainwindow
+    ini = QSettings(str(tmp_path / "s.ini"), QSettings.IniFormat)
+    monkeypatch.setattr(mainwindow, "settings", lambda: ini)  # nicht in die echte Registry schreiben
+    w = MainWindow()
+    w.resize(1200, 750)
+    w.show()
+    pv = w.page_view()
+    assert pv.count() == 2 and pv.top.count() == 3  # Tabellen | Plot | Panel, darunter Auswertung
+    assert all(s.childrenCollapsible() for s in pv.splitters().values())
+    pv.top.setSizes([0, 800, 300])  # Tabellen ganz zugeklappt
+    pv.save_layout()
+    w.add_page()  # neue Seite übernimmt das Layout beim Anzeigen
+    app.processEvents()
+    assert w.page_view().top.sizes()[0] == 0 and w.page_view().plot.isVisible()
+    w.hide()
+
+
 def test_plot_live_update_and_undo():
     w = MainWindow()
     pv = w.page_view()
@@ -95,8 +114,63 @@ def test_selection_stats_and_fit_report():
     m = v.model()
     m.set_cells({(i, j): float(i + 1) * (j + 1) + (0.1 if j and i % 2 else 0) for i in range(4) for j in (0, 1)}, "W")
     v.selectionModel().select(QItemSelection(m.index(0, 1), m.index(3, 1)), QItemSelectionModel.ClearAndSelect)
-    assert w.stats[0]["n"] == 4 and "n = 4" in w.stats_label.text()
+    ev = w.page_view().evaluation
+    app.processEvents()
+    assert ev.selection[0]["n"] == 4 and ev.desc_title.text() == "Auswahl" and "n = 4" in ev.desc.text()
     m.table.columns[1].fit = {"formula": "a*x + b"}
     d = FitDialog(plot.series(m.table)[0], v)
     d.preview()
     assert "R²" in d.msg.text() and "adj. R²" in d.msg.text()
+
+
+def test_panel_fit_formula_and_axes():
+    w = MainWindow()
+    pv = w.page_view()
+    m = pv.tiles[0].model
+    m.set_cells({(r, c): float(r + 1 if c == 0 else 2 * (r + 1) ** 2 + 3) for r in range(4) for c in range(2)}, "Werte")
+    app.processEvents()
+    row = pv.panel.rows[0]
+    row.formula.setText("a*x^2 + b")
+    assert "Parameter: a, b" in row.result.text()
+    row.commit()
+    app.processEvents()
+    assert m.table.columns[1].fit == {"formula": "a*x^2 + b"} and "a = 2" in pv.panel.rows[0].result.text()
+    pv.panel.rows[0].line.setChecked(True)
+    assert m.table.columns[1].fit == {"formula": "a*x + b"}
+    w.stack.undo()
+    w.stack.undo()
+    app.processEvents()
+    assert m.table.columns[1].fit == {} and pv.panel.rows[0].result.text() == "kein Fit"
+    e = pv.panel.edits["xmax"][0]
+    e.setText("abc")
+    pv.panel.commit("xmax")
+    assert pv.page.plot == {} and pv.panel.msg.text()
+    e.setText("10")
+    pv.panel.commit("xmax")
+    pv.panel.checks["ylog"].setChecked(True)
+    assert pv.page.plot == {"xmax": 10.0, "ylog": True}
+    pv.panel.checks["grid"].setChecked(not pv.panel.checks["grid"].isChecked())
+    assert "grid" in w.project.style and w.stack.undo() is None and w.project.style == {}
+    pv.panel.checks["grid"].setChecked(False)
+    assert not pv.plot.canvas.figure.axes[0].xaxis.get_gridlines()[0].get_visible()
+
+
+def test_evaluation_bar():
+    w = MainWindow()
+    pv = w.page_view()
+    ev, m = pv.evaluation, pv.tiles[0].model
+    m.set_cells({(i, 0): float(i) for i in range(8)} | {(i, 1): v for i, v in enumerate([1, 2, 3, 2, 1, 2, 3, 50])}, "W")
+    app.processEvents()
+    assert ev.a.currentText().endswith("y") and "n = 8" in ev.desc.text()  # Standard: erste Y-Spalte
+    assert "Sollwert" in ev.ttest.text() and "Zweite Spalte" in ev.welch.text()
+    assert "Ausreißer (IQR (1.5)): 50" in ev.out.text()
+    ev.mu0.setText("0")
+    ev.b.setCurrentIndex(1)  # x
+    app.processEvents()
+    assert "p = " in ev.ttest.text() and "Δx̄ = " in ev.welch.text()
+    ev.copy(True)
+    t = QApplication.clipboard().text()
+    assert r"$\bar{x}$ = \num{8 \pm 7}" in t and r"$\Delta\bar{x}$" in t and "Welch" in t
+    m.add_y()  # neue Spalte erscheint in den Listen, Auswahl bleibt
+    app.processEvents()
+    assert ev.a.count() == 3 and ev.a.currentText().endswith("y")

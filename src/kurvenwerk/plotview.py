@@ -1,15 +1,15 @@
-"""Plot-Bereich einer Seite (Canvas + Werkzeugleiste) und die Dialoge für Achsen, Stil, Reihe, Export."""
+"""Plot-Bereich einer Seite (Canvas + Werkzeugleiste) und die Dialoge für Stil, Reihe, Export."""
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.colors import is_color_like
 from matplotlib.figure import Figure
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtGui import QUndoCommand
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox, QToolButton, QVBoxLayout, QWidget)
 
 from . import plot
-from .formula import FormulaError, number
+from .formula import number
 from .model import Page, Project
 
 
@@ -34,7 +34,7 @@ class FormDialog(QDialog):
             else:
                 w = QLineEdit("" if v is None else f"{v:g}" if isinstance(v, float) else str(v))
             if kind == "math":
-                w.setPlaceholderText("auto · LaTeX-Mathe in $…$, z.B. $\\Delta U$ / mV")
+                w.setPlaceholderText("auto · LaTeX-Mathe in $…$, z.B. $u_U$ / mV")
             elif kind == "num":
                 w.setPlaceholderText("auto")
             self.w[key] = w
@@ -54,26 +54,30 @@ class FormDialog(QDialog):
             if kind == "bool":
                 out[key] = w.isChecked()
                 continue
-            t = (w.currentData() if isinstance(kind, tuple) else w.text()).strip()
-            err = None
-            if kind == "num":
-                try:
-                    t = number(t) if t else None
-                except FormulaError as e:
-                    err = str(e)
-            elif kind == "math":
-                err = plot.label_error(t)
-            elif kind == "color" and t and not is_color_like(t):
-                err = "keine Farbe (z.B. #1f77b4, red, C0)"
-            elif kind == "colors" and not all(is_color_like(c.strip()) for c in t.split(",") if c.strip()):
-                err = "Farben kommagetrennt, z.B. #1f77b4, red"
-            if err:
-                self.msg.setText(f"{label}: {err}")
+            try:
+                out[key] = convert(kind, (w.currentData() if isinstance(kind, tuple) else w.text()).strip())
+            except ValueError as e:
+                self.msg.setText(f"{label}: {e}")
                 self.w[key].setFocus()
                 return
-            out[key] = t
         self.result_values = out
         self.accept()
+
+
+def convert(kind, t: str):
+    """Eingabetext eines Formularfelds → Wert; ValueError mit Meldung bei ungültiger Eingabe."""
+    if kind == "num":
+        return number(t) if t else None
+    err = None
+    if kind == "math":
+        err = plot.label_error(t)
+    elif kind == "color" and t and not is_color_like(t):
+        err = "keine Farbe (z.B. #1f77b4, red, C0)"
+    elif kind == "colors" and not all(is_color_like(c.strip()) for c in t.split(",") if c.strip()):
+        err = "Farben kommagetrennt, z.B. #1f77b4, red"
+    if err:
+        raise ValueError(err)
+    return t
 
 
 def ask(title: str, spec: list, values: dict, parent=None) -> dict | None:
@@ -81,13 +85,6 @@ def ask(title: str, spec: list, values: dict, parent=None) -> dict | None:
     return d.result_values if d.exec() else None
 
 
-AXES_SPEC = [("title", "Titel", "math"), ("xlabel", "x-Achse", "math"), ("ylabel", "y-Achse", "math"),
-             ("y2label", "2. y-Achse", "math"),
-             ("xmin", "x min", "num"), ("xmax", "x max", "num"), ("ymin", "y min", "num"),
-             ("ymax", "y max", "num"), ("y2min", "2. y min", "num"), ("y2max", "2. y max", "num"),
-             ("xlog", "x logarithmisch", "bool"), ("ylog", "y logarithmisch", "bool"),
-             ("y2log", "2. y logarithmisch", "bool"), ("legend", "Legende", "bool"),
-             ("swap", "Achsen tauschen x↔y", "bool"), ("residuals", "Residuenplot (bei Fit)", "bool")]
 STYLE_SPEC = [("marker", "Marker", plot.MARKERS), ("markersize", "Markergröße", "num"),
               ("linestyle", "Linie", plot.LINESTYLES), ("linewidth", "Linienbreite", "num"),
               ("capsize", "Fehlerbalken-Kappe", "num"), ("fit_alpha", "Fit-Deckkraft (0–1)", "num"), ("colors", "Farbfolge", "colors"),
@@ -129,19 +126,19 @@ class AttrCmd(QUndoCommand):
 
 
 class PlotPanel(QWidget):
+    redrawn = Signal()  # nach jedem Neuzeichnen → Einstellungs-Panel aktualisiert sich
+
     def __init__(self, page: Page, project: Project, stack):
         super().__init__()
         self.setObjectName("page")
         self.page, self.project, self.stack = page, project, stack
         self.canvas = FigureCanvasQTAgg(Figure(layout="constrained"))
         self.canvas.mpl_connect("button_press_event", self.click)
-        self.drawn, self.set_fit = [], None  # set_fit(Spalte, fit) setzt PageView
+        self.drawn, self.set_fit, self.on_dblclick = [], None, None  # setzt PageView: set_fit(Spalte, fit)
         self.timer = QTimer(self, singleShot=True, interval=0)  # bündelt dataChanged + headerDataChanged
         self.timer.timeout.connect(self.redraw)
         bar = QHBoxLayout()
         for text, tip, slot in [("⇄ x↔y", "Achsen tauschen", self.swap),
-                                ("Achsen …", "Titel, Beschriftung, Bereiche, Log (Doppelklick in den Plot)",
-                                 self.edit_axes),
                                 ("Export …", "PNG/PDF/SVG/PGF mit Größe und DPI", self.export)]:
             b = QToolButton(text=text, toolTip=tip)
             b.clicked.connect(slot)
@@ -165,6 +162,7 @@ class PlotPanel(QWidget):
             fig.clear()
             fig.text(0.5, 0.5, f"Plot nicht darstellbar:\n{e}", ha="center", va="center", wrap=True)
         self.canvas.draw_idle()
+        self.redrawn.emit()
 
     def hit(self, e):
         """Nächster Punkt einer gefitteten Reihe im Umkreis von 8 px → (Reihe, Index) oder None."""
@@ -180,7 +178,7 @@ class PlotPanel(QWidget):
         return best
 
     def click(self, e):
-        """Klick auf Punkt einer gefitteten Reihe schaltet seinen Fit-Ausschluss um, Doppelklick sonst → Achsen."""
+        """Klick auf Punkt einer gefitteten Reihe schaltet seinen Fit-Ausschluss um, Doppelklick sonst → Panel."""
         if e.button != 1:
             return
         h = self.hit(e)
@@ -189,8 +187,8 @@ class PlotPanel(QWidget):
             ex = sorted(set(s.ycol.fit.get("excluded", [])) ^ {int(s.rows[k])})
             self.set_fit(s.ycol, _clean({**s.ycol.fit, "excluded": ex}, plot.fitting.FIT))
             self.redraw()  # drawn sofort auf die neuen Spaltenobjekte, sonst greift ein schneller 2. Klick ins Leere
-        elif not h and e.dblclick:
-            self.edit_axes()
+        elif not h and e.dblclick and self.on_dblclick:
+            self.on_dblclick()
 
     def set_plot(self, new: dict, text: str):
         new = _clean(new, plot.PLOT)
@@ -199,11 +197,6 @@ class PlotPanel(QWidget):
 
     def swap(self):
         self.set_plot({**self.page.plot, "swap": not self.page.plot.get("swap", False)}, "Achsen tauschen")
-
-    def edit_axes(self):
-        v = ask("Achsen & Beschriftung", AXES_SPEC, {**plot.PLOT, **self.page.plot}, self)
-        if v is not None:
-            self.set_plot(v, "Achsen ändern")
 
     def export(self):
         st = {**plot.STYLE, **self.project.style}

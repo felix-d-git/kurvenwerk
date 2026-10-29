@@ -63,7 +63,7 @@ def test_effective_variance_with_dx():
     s_eff = np.sqrt(0.3 ** 2 + (r.values[0] * 0.2) ** 2)
     np.testing.assert_allclose(r.errors[0], s_eff / np.sqrt(((X - X.mean()) ** 2).sum()), rtol=1e-6)
     assert r.method.startswith("effektive Varianz")
-    assert fit("a*x + b", X, y, dx=np.r_[0.0, dx[1:]], dy=dy).method == "gewichtet (Δy)"  # Δx lückenhaft
+    assert fit("a*x + b", X, y, dx=np.r_[0.0, dx[1:]], dy=dy).method == "gewichtet (u_y)"  # Δx lückenhaft
 
 
 def test_fixed_and_bounds():

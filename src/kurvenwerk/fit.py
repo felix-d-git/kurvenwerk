@@ -1,5 +1,5 @@
-"""Fit ohne Qt: Formel y(x) mit Parametern → scipy curve_fit. Δy wirkt als Gewicht (absolute Fehler),
-Δx über die effektive Varianz σ² = Δy² + (∂f/∂x · Δx)², iteriert bis die Parameter stehen.
+"""Fit ohne Qt: Formel y(x) mit Parametern → scipy curve_fit. u_y wirkt als Gewicht (absolute Fehler),
+u_x über die effektive Varianz σ² = u_y² + (∂f/∂x · u_x)², iteriert bis die Parameter stehen.
 Kein scipy.odr: ab SciPy 1.17 abgekündigt, 1.19 entfernt; effektive Varianz kann zudem Grenzen/Fixieren."""
 import re
 from dataclasses import dataclass
@@ -63,7 +63,7 @@ class Result:
     cov: np.ndarray  # nur freie Parameter
     chi2: float
     ndf: int
-    absolute: bool  # Gewichte aus Δx/Δy → Fehler absolut, Band mit Normalquantil
+    absolute: bool  # Gewichte aus u_x/u_y → Fehler absolut, Band mit Normalquantil
     s2: float  # Streuung eines neuen Punktes fürs Prognoseband
     method: str
     _f: object
@@ -96,7 +96,7 @@ class Result:
 
 
 def fit(text: str, x, y, dx=None, dy=None, spec: dict | None = None) -> Result:
-    """spec = Column.fit["params"]. Δy/Δx zählen nur, wenn alle Werte > 0 (fehlend = 0 → ungewichtet)."""
+    """spec = Column.fit["params"]. u_y/u_x zählen nur, wenn alle Werte > 0 (fehlend = 0 → ungewichtet)."""
     expr, names = model(text)
     spec = spec or {}
     get = lambda n, k, d: d if (v := spec.get(n, {}).get(k)) is None else v  # noqa: E731
@@ -142,7 +142,7 @@ def fit(text: str, x, y, dx=None, dy=None, spec: dict | None = None) -> Result:
             var = (np.asarray(dy, float) ** 2 if wy else 0) + \
                 ((_eval(fx, x, full(p)) * np.asarray(dx, float)) ** 2 if wx else 0)
             if not np.all(var > 0):
-                raise FitError("Δx ohne Δy braucht überall eine Steigung ≠ 0")
+                raise FitError("u_x ohne u_y braucht überall eine Steigung ≠ 0")
             sigma = np.sqrt(var)
         try:
             popt, pcov = optimize.curve_fit(g, x, y, p0=p, sigma=sigma, absolute_sigma=sigma is not None,
@@ -166,6 +166,6 @@ def fit(text: str, x, y, dx=None, dy=None, spec: dict | None = None) -> Result:
     r2 = 1 - chi2 / sst if sst > 0 else np.nan
     q = dict(r2=r2, r2adj=1 - (1 - r2) * (len(x) - 1) / ndf if ndf else np.nan, rmse=float(np.sqrt(np.mean(r ** 2))),
              p=float(stats.chi2.sf(chi2, ndf)) if sigma is not None and ndf else np.nan)
-    method = "effektive Varianz (Δx, Δy)" if wx else "gewichtet (Δy)" if wy else "ungewichtet"
+    method = "effektive Varianz (u_x, u_y)" if wx else "gewichtet (u_y)" if wy else "ungewichtet"
     return Result(names, full(p), errors, free, pcov, chi2, ndf, sigma is not None, s2, method, f, jac, **q)
 

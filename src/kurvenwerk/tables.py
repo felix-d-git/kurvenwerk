@@ -3,17 +3,17 @@ from copy import deepcopy
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSettings, Qt, Signal
 from PySide6.QtGui import QKeySequence, QUndoCommand
-from PySide6.QtWidgets import (QAbstractItemDelegate, QApplication, QCheckBox, QComboBox, QDialog,
+from PySide6.QtWidgets import (QAbstractItemDelegate, QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
                                QDialogButtonBox, QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QMenu, QMessageBox, QTableView, QToolButton, QVBoxLayout,
                                QWidget)
 
 from .formula import FUNCS, ROW, FormulaError, error_column, number, parse, prefix_factor, recompute, row_value
-from .model import ROLES, Column, Table
+from .model import ROLES, U, Column, Table
 from .paste import parse, to_float
-from .plotview import series_style
+from .plot import _error, heading
+from .plotview import AttrCmd, series_style
 
-MIN_ROWS = 20
 
 
 def settings() -> QSettings:
@@ -29,6 +29,11 @@ def result_opts() -> dict:
     """Ausgabe von Ergebnissen: DIN-Rundung, Unsicherheit relativ in %."""
     s = settings()
     return {"rounded": s.value("results/din", True, type=bool), "pct": s.value("results/pct", False, type=bool)}
+
+
+def _rows(cols: list[Column]) -> int:
+    """Genutzte Zeilen + 1 leere zum Weitertippen."""
+    return max((len(c.values) for c in cols), default=0) + 1
 
 
 def _tidy(cols: list[Column]) -> None:
@@ -56,8 +61,7 @@ class TableModel(QAbstractTableModel):
         self.table, self.stack = table, stack
 
     def rowCount(self, parent=QModelIndex()):
-        return 0 if parent.isValid() else max(max((len(c.values) for c in self.table.columns), default=0) + 1,
-                                               MIN_ROWS)
+        return 0 if parent.isValid() else _rows(self.table.columns)
 
     def columnCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else len(self.table.columns)
@@ -128,7 +132,7 @@ class TableModel(QAbstractTableModel):
             self.table.columns = deepcopy(cols)
             self.endResetModel()
             return
-        new_rows = max(max((len(c.values) for c in cols), default=0) + 1, MIN_ROWS)
+        new_rows = _rows(cols)
         if new_rows > rows:
             self.beginInsertRows(QModelIndex(), rows, new_rows - 1)
         elif new_rows < rows:
@@ -154,9 +158,11 @@ class TableModel(QAbstractTableModel):
                 c = cols[col + j]
                 if headers and headers[j][0]:
                     c.name, c.unit = headers[j]
-                    if col + j >= len(self.table.columns) and c.name.startswith("Δ"):
+                    if c.name.startswith("Δ"):  # alte Notation aus Excel/CSV
+                        c.name = U + c.name[1:]
+                    if col + j >= len(self.table.columns) and c.name.startswith(U):
                         x = next((k.name for k in cols if k.role == "X"), None)
-                        c.role = "Δx" if c.name[1:] == x else "Δy"
+                        c.role = "u_x" if c.name[len(U):] == x else "u_y"
                 c.values.extend([None] * (row + len(vals) - len(c.values)))
                 c.values[row:row + len(vals)] = vals
         self.edit(fn, "Einfügen")
@@ -177,7 +183,7 @@ class TableModel(QAbstractTableModel):
         self.edit(fn, "Spaltenwerte setzen")
 
     def scale(self, j: int, k: float, unit: str | None = None) -> None:
-        """Spalte (und ihr Δ) × k; bei Formelspalten wird die Formel erweitert."""
+        """Spalte (und ihr u_) × k; bei Formelspalten wird die Formel erweitert."""
         def fn(cols):
             c = cols[j]
             e = error_column(cols, c.name)
@@ -204,9 +210,35 @@ class TableModel(QAbstractTableModel):
     def add_y(self) -> None:
         self.edit(lambda cols: cols.append(Column(f"y{len(cols)}")), "Y-Spalte hinzufügen")
 
+    def swap_columns(self, i: int, j: int) -> None:
+        """Inhalte zweier X/Y-Spalten tauschen; die Rolle bleibt am Platz, Fehlerspalten wandern mit."""
+        cols = self.table.columns
+        if i == j or not all(0 <= k < len(cols) and cols[k].role in ("X", "Y") for k in (i, j)):
+            return
+
+        def fn(cols):
+            a, b = cols[i], cols[j]
+            ea, eb = _error(cols, i), _error(cols, j)
+            a.role, b.role = b.role, a.role
+            cols[i], cols[j] = b, a
+            for owner, e in ((b, eb), (a, ea)):
+                if e is not None:
+                    del cols[next(k for k, c in enumerate(cols) if c is e)]  # Identität: Spalten können gleich sein
+                    cols.insert(next(k for k, c in enumerate(cols) if c is owner) + 1, e)
+                    e.role = "u_x" if owner.role == "X" else "u_y"
+        self.edit(fn, "Spalten tauschen")
+
     def remove_column(self, j: int) -> None:
-        if self.columnCount() > 1:
-            self.edit(lambda cols: cols.pop(j), "Spalte löschen")
+        """Auch X; u_ einer Gauß-Formelspalte → deren Gauß aus, sonst legt recompute sie sofort neu an."""
+        if not 0 <= j < self.columnCount() or self.columnCount() == 1:
+            return
+
+        def fn(cols):
+            c = cols.pop(j)
+            for k in cols:
+                if k.gauss and c.name == U + k.name:
+                    k.gauss = False
+        self.edit(fn, "Spalte löschen")
 
 
 class ColumnDialog(QDialog):
@@ -237,7 +269,7 @@ class FormulaDialog(QDialog):
         self.setWindowTitle(f"Spaltenwerte setzen – {c.name}")
         f = QFormLayout(self)
         self.text = QLineEdit(c.formula, placeholderText="z.B. U*I, \\frac{U}{I}, $U^2$")
-        self.gauss = QCheckBox(f"Gauß-Fehler nach Δ{c.name} schreiben", checked=c.gauss or not c.formula)
+        self.gauss = QCheckBox(f"Gauß-Fehler nach {U}{c.name} schreiben", checked=c.gauss or not c.formula)
         self.msg = QLabel(wordWrap=True)
         refs = ", ".join(n for n in self.names if n.isidentifier() and n != c.name)
         f.addRow("Formel", self.text)
@@ -288,6 +320,8 @@ class TableView(QTableView):
                 self.tile.emit(-1 if shift else 1, r, -1 if shift else 0)
                 return
         else:  # Enter
+            if self.state() == QAbstractItemView.EditingState and (ed := QApplication.focusWidget()) is not self:
+                self.commitData(ed)  # erst übernehmen → neue leere Zeile existiert schon
             r = max(0, min(r + (-1 if shift else 1), self.model().rowCount() - 1))
             c, self.origin = (c if self.origin is None else self.origin), None
         self.setCurrentIndex(self.model().index(r, c))
@@ -369,7 +403,7 @@ class TableView(QTableView):
             w.show_stats(*self.selection_stats())
 
     def selection_stats(self) -> tuple[dict, str]:
-        """Statistik der markierten Zellen (ab 2). Nur eine Spalte → deren Einheit und Δ-Spalte (gewichteter Mittelwert)."""
+        """Statistik der markierten Zellen (ab 2). Nur eine Spalte → deren Einheit und u-Spalte (gewichteter Mittelwert)."""
         from . import plot
         from .stats import describe
         idx = self.selectedIndexes()
@@ -417,13 +451,20 @@ class TableView(QTableView):
             if self.model().table.columns[j].role == "Y":
                 m.addAction("Reihen-Stil …", lambda: self.series_style(j))
                 m.addAction("Fit …", lambda: self.fit(j))
+            cols = self.model().table.columns
+            others = [k for k, c in enumerate(cols) if k != j and c.role in ("X", "Y")]
+            if cols[j].role in ("X", "Y") and others:
+                sw = m.addMenu("Tauschen mit …")
+                for k in others:
+                    sw.addAction(heading(cols[k]), lambda k=k: self.model().swap_columns(j, k))
             m.addAction("Spalte löschen", lambda: self.model().remove_column(j))
         m.addAction("Y-Spalte hinzufügen", self.model().add_y)
         m.exec(self.cursor().pos())
 
 
 class TableTile(QWidget):
-    """Kachel: Titelzeile (Name, + Y) über der Tabelle."""
+    """Kachel: Titelzeile (Name, + Y, ✕) über der Tabelle."""
+    remove = Signal()
 
     def __init__(self, table: Table, stack):
         super().__init__()
@@ -431,15 +472,30 @@ class TableTile(QWidget):
         self.model = TableModel(table, stack)
         self.view = TableView(self.model)
         top = QHBoxLayout()
-        top.addWidget(QLabel(table.name))
-        top.addStretch()
+        self.title = QLineEdit(table.name, toolTip="Tabellentitel (Legende, Export)", frame=False)
+        self.title.editingFinished.connect(self.rename)
+        top.addWidget(self.title, 1)
         add = QToolButton(text="+ Y", toolTip="Y-Spalte hinzufügen")
         add.clicked.connect(self.model.add_y)
         top.addWidget(add)
+        rm = QToolButton(text="✕", toolTip="Tabelle löschen (Strg+Z holt sie zurück)")
+        rm.clicked.connect(self.remove)
+        top.addWidget(rm)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addLayout(top)
         lay.addWidget(self.view)
+
+    def rename(self):
+        t, name = self.model.table, self.title.text().strip()
+        if not name or name == t.name:
+            self.title.setText(t.name)
+            return
+
+        def after():
+            self.title.setText(t.name)
+            self.model.headerDataChanged.emit(Qt.Horizontal, 0, max(self.model.columnCount() - 1, 0))  # → Replot
+        self.model.stack.push(AttrCmd(t, "name", name, "Tabellentitel", after))
 
 
 class AddTableCmd(QUndoCommand):
@@ -450,9 +506,21 @@ class AddTableCmd(QUndoCommand):
         self.pv, self.tile = page_view, TableTile(table, page_view.stack)
 
     def redo(self):
-        self.pv.page.tables.append(self.tile.model.table)
         self.pv.insert_tile(self.tile)
 
     def undo(self):
-        self.pv.page.tables.pop()
         self.pv.remove_tile(self.tile)
+
+
+class RemoveTableCmd(QUndoCommand):
+    """Kachel samt Tabelle raus; Undo setzt dasselbe Objekt an alter Stelle wieder ein."""
+
+    def __init__(self, page_view, tile: TableTile):
+        super().__init__("Tabelle löschen")
+        self.pv, self.tile, self.i = page_view, tile, page_view.tiles.index(tile)
+
+    def redo(self):
+        self.pv.remove_tile(self.tile)
+
+    def undo(self):
+        self.pv.insert_tile(self.tile, self.i)

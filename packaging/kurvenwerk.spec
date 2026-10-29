@@ -29,7 +29,7 @@ a = Analysis(
 a.binaries = [b for b in a.binaries if not DROP.search(b[0])]
 a.datas = [d for d in a.datas if not DROP.search(d[0])]
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Kurvenwerk", console=False)
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Kurvenwerk", console=False, icon=str(HERE / "kurvenwerk.ico"))
 COLLECT(exe, a.binaries, a.datas, name="Kurvenwerk")
 
 out = Path(DISTPATH) / "Kurvenwerk"
