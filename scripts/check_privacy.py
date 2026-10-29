@@ -51,6 +51,9 @@ ARTIFACT_ALLOW = re.compile("|".join([
     r"Felix Hanau",                                     # Fremd-Autor in Qt-Lizenzhinweisen
     r"Email domain:\s+gmail\.com",                      # Qt-Lizenzhinweis, nur Domain
 ]))
+# Anzeigename des Maintainers in Commits, die GitHub selbst erstellt (Squash-Merge im Web);
+# ist ohnehin öffentlich im GitHub-Profil. Nur zusammen mit seiner noreply-Adresse ausgenommen.
+OWNER_MAIL = "+felix-d-git@users.noreply.github.com"
 
 
 def patterns(artifact=False):
@@ -179,7 +182,8 @@ def main():
             for mail in (ae, ce):
                 if not ALLOWED_AUTHOR.search(mail):
                     hits.append(f"commit {h[:8]}: Mail nicht noreply: {mail}")
-            scan(f"commit {h[:8]} meta", f"{an}\n{cn}\n{body}", rx, hits)
+            names = [n for n, m in ((an, ae), (cn, ce)) if not m.endswith(OWNER_MAIL)]
+            scan(f"commit {h[:8]} meta", "\n".join(names + [body]), rx, hits)
 
     # 3. Zusätzliche Pfade (Build-Ordner, Release-ZIP)
     for extra in sys.argv[sys.argv.index("--extra") + 1:] if "--extra" in sys.argv else []:
